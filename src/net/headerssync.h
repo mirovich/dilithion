@@ -8,7 +8,6 @@
 
 #include <primitives/block.h>
 #include <crypto/sha3.h>
-#include <net/iheader_proof_checker.h>  // Phase 3: chain-agnostic proof seam
 
 #include <deque>
 #include <vector>
@@ -143,20 +142,13 @@ public:
      * @param chain_start_hash Hash of the block we're syncing from
      * @param chain_start_height Height of the starting block
      * @param minimum_work Minimum chain work to accept (DoS threshold)
-     * @param proof_checker Phase 3 chain-agnostic proof check (RandomX or
-     *                      VDF impl). Non-owning; must outlive this state.
-     *                      Pass nullptr to fall back to the legacy inline
-     *                      `IsVDFBlock()`-branch + CheckProofOfWork path —
-     *                      preserves pre-Phase-3 behaviour for tests that
-     *                      don't wire a checker.
      */
     HeadersSyncState(
         NodeId peer_id,
         const HeadersSyncParams& params,
         const uint256& chain_start_hash,
         int64_t chain_start_height,
-        const uint256& minimum_work,
-        const ::dilithion::net::IHeaderProofChecker* proof_checker = nullptr
+        const uint256& minimum_work
     );
 
     ~HeadersSyncState() = default;
@@ -245,10 +237,6 @@ private:
 
     //! Current synchronization phase
     State m_download_state;
-
-    //! Phase 3: chain-agnostic proof checker. Non-owning. Nullptr = legacy
-    //! inline path (preserves pre-Phase-3 behaviour for un-migrated callers).
-    const ::dilithion::net::IHeaderProofChecker* m_proof_checker;
 
     // Internal methods
 
