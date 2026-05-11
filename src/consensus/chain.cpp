@@ -2334,6 +2334,15 @@ uint256 CChainState::GetLastUndoFailureHash() const {
 // startup to detect the missing-undo-data state BEFORE reorg attempts begin.
 // On detection, the caller writes auto_rebuild and exits, instead of letting
 // the node loop forever like NYC + LDN did 2026-04-25.
+//
+// v4.4: thin delegator. Routes through CUTXOSet::VerifyUndoDataInRange so all
+// integrity-check call sites (this legacy 100-block-probe API + the new
+// rolling-window startup walk + the periodic monitor) share one canonical
+// pprev-walk + SHA3-checksum implementation. The legacy two-output failure
+// shape (uint256 + int) is preserved for backwards-compatibility with any
+// remaining callers; the v4.4 startup integration in dilv-node.cpp +
+// dilithion-node.cpp uses the richer UndoIntegrityFailure shape directly.
+// Marked deprecated; cleanup pass scheduled for v4.5.
 
 bool CChainState::VerifyRecentUndoIntegrity(int probeDepth,
                                             uint256& outMissingHash,
@@ -2349,28 +2358,97 @@ bool CChainState::VerifyRecentUndoIntegrity(int probeDepth,
         return true;  // Empty chain or zero depth — nothing to check.
     }
 
+    const int tipHeight = pindexTip->nHeight;
+    // Genesis is exempt from the walk (matching v4.0.19 semantic): probeDepth=N
+    // probes the most recent N non-genesis blocks. We translate that to
+    // [tipHeight - probeDepth + 1, tipHeight] but clamp the lower bound to 1
+    // so genesis itself (height 0) is never queried.
+    const int fromHeight = std::max(1, tipHeight - probeDepth + 1);
+    const int toHeight = tipHeight;
+
+    UndoIntegrityFailure failure;
+    if (pUTXOSet->VerifyUndoDataInRange(pindexTip, fromHeight, toHeight, failure)) {
+        return true;
+    }
+
+    // Map v4.4 failure shape onto the legacy two-output API.
+    outMissingHash = failure.blockHash;
+    outMissingHeight = failure.height;
+    return false;
+}
+
+// ============================================================================
+// v4.4 Block 6: ChainstateIntegrityMonitor support
+// ============================================================================
+
+std::vector<std::pair<int, uint256>>
+CChainState::SnapshotIntegrityWindow(int windowBlocks) const {
+    std::vector<std::pair<int, uint256>> snapshot;
+    if (windowBlocks <= 0) return snapshot;
+
+    std::lock_guard<std::recursive_mutex> lock(cs_main);
+    if (pindexTip == nullptr) return snapshot;
+
+    // Reserve up-front so we don't realloc inside the lock-held walk.
+    snapshot.reserve(static_cast<size_t>(windowBlocks));
+
     CBlockIndex* pwalker = pindexTip;
-    int probed = 0;
-    while (pwalker != nullptr && probed < probeDepth) {
-        // Stop walking at genesis — we don't need to reorg past it, so verifying
-        // its undo entry adds no operational value. (ApplyBlock does write an
-        // undo_<hash> record for every connected block including genesis when
-        // the genesis path runs through it; we just don't need to assert that
-        // here. Per Cursor review 2026-04-25.)
+    int collected = 0;
+    while (pwalker != nullptr && collected < windowBlocks) {
+        // Genesis-exempt: stop walking past height 1 (matching the legacy
+        // VerifyRecentUndoIntegrity semantic). pprev == nullptr is the
+        // pre-genesis sentinel; height 0 is genesis.
         if (pwalker->pprev == nullptr) {
             break;
         }
-
-        const uint256 hash = pwalker->GetBlockHash();
-        if (!pUTXOSet->HasUndoData(hash)) {
-            outMissingHash = hash;
-            outMissingHeight = pwalker->nHeight;
-            return false;
-        }
-
+        snapshot.emplace_back(pwalker->nHeight, pwalker->GetBlockHash());
+        ++collected;
         pwalker = pwalker->pprev;
-        ++probed;
     }
+    return snapshot;
+}
+
+bool CChainState::RevalidateUnderCsMain(
+    int height,
+    const uint256& expectedHash,
+    const std::function<void()>& onConfirmedCorruption) const
+{
+    std::lock_guard<std::recursive_mutex> lock(cs_main);
+
+    // Inverse Adversarial trap 2A: query a FRESH active tip, NOT a captured
+    // CBlockIndex* from snapshot time.
+    CBlockIndex* freshTip = pindexTip;
+    if (freshTip == nullptr) {
+        // No active chain — can't revalidate. Treat as orphan-skip.
+        return false;
+    }
+
+    // Walk the fresh tip back via pprev to the failure height.
+    CBlockIndex* pwalker = freshTip;
+    while (pwalker != nullptr && pwalker->nHeight > height) {
+        pwalker = pwalker->pprev;
+    }
+
+    const bool stillOnActiveChain =
+        (pwalker != nullptr) &&
+        (pwalker->nHeight == height) &&
+        (pwalker->GetBlockHash() == expectedHash);
+
+    if (!stillOnActiveChain) {
+        // Block at the failure height is no longer on the active chain (or
+        // a reorg replaced it with a different hash). UndoBlock at
+        // utxo_set.cpp:881-882 deletes the disconnected block's undo entry,
+        // which is what the periodic walk picked up. Not corruption.
+        return false;
+    }
+
+    // Genuine corruption — block is still on active chain but its undo
+    // entry is missing/corrupt. Run the caller-supplied marker-write
+    // callback WHILE STILL holding cs_main (Inverse Adversarial trap 2B —
+    // marker write must happen under the same lock acquisition as the
+    // revalidation decision; releasing and re-acquiring opens a window
+    // where another reorg invalidates the decision).
+    onConfirmedCorruption();
     return true;
 }
 
