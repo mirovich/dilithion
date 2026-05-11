@@ -13,6 +13,25 @@
 #include <mutex>
 #include <map>
 #include <list>
+#include <vector>
+#include <cstdint>
+#include <atomic>
+#include <utility>
+
+// Forward declaration — VerifyUndoDataInRange takes CBlockIndex* without needing the full type.
+class CBlockIndex;
+
+/**
+ * v4.4: Result info for chainstate integrity walk failure.
+ * Populated by CUTXOSet::VerifyUndoDataInRange when the walk detects a missing
+ * or corrupt undo record. The cause field distinguishes failure modes for
+ * operator diagnostics + auto-rebuild marker reason text.
+ */
+struct UndoIntegrityFailure {
+    int height = -1;
+    uint256 blockHash;
+    std::string cause;  // "missing" | "checksum_mismatch" | "size_invalid" | "db_not_open" | "block_index_missing"
+};
 
 /**
  * UTXO (Unspent Transaction Output) entry
@@ -226,6 +245,80 @@ public:
      *         fails to verify.
      */
     bool ReadUndoBlock(const uint256& blockHash, CBlockUndo& undo_out) const;
+
+    /**
+     * v4.4: Walk the chain backward from pindexFrom via pprev, verifying every
+     * block in the inclusive height range [fromHeight, toHeight] has its undo
+     * record present in LevelDB and SHA3-256-checksummed correctly. Used by
+     * CChainState::VerifyRecentUndoIntegrity (delegator) and
+     * ChainstateIntegrityMonitor (periodic) to detect the missing/corrupt
+     * undo-data corruption mode (incident 2026-04-25).
+     *
+     * Walk pattern: pindexFrom, pindexFrom->pprev, ... — RT F-1 fix; explicitly
+     * NOT lambda-per-height GetAncestor (would be O(N log N)) or naive
+     * retry-from-tip (O(N^2)). Total cost is O(N) where N = (toHeight - fromHeight + 1).
+     *
+     * Lock discipline: the caller is responsible for cs_main (or for guaranteeing
+     * pindexFrom is otherwise stable, e.g. during single-threaded startup before
+     * block processing begins). This method acquires cs_utxo internally.
+     *
+     * @param pindexFrom    Starting CBlockIndex (typically pindexTip). Walk pprev from here.
+     * @param fromHeight    Inclusive lower bound of verification window.
+     * @param toHeight      Inclusive upper bound of verification window.
+     * @param failure_out   Populated on failure with height + blockHash + cause.
+     * @return true iff every block in [fromHeight, toHeight] has valid undo data.
+     */
+    bool VerifyUndoDataInRange(CBlockIndex* pindexFrom,
+                               int fromHeight,
+                               int toHeight,
+                               UndoIntegrityFailure& failure_out);
+
+    /**
+     * v4.4 Block 6: walk a caller-supplied (height, blockHash) snapshot,
+     * verifying every entry has a present, SHA3-checksummed undo record.
+     * Used by ChainstateIntegrityMonitor's periodic check; the snapshot is
+     * built under cs_main by CChainState::SnapshotIntegrityWindow before the
+     * walk, so this method is lock-free w.r.t. cs_main (acquires cs_utxo
+     * internally for the LevelDB reads).
+     *
+     * Stop-flag discipline (Inverse Adversarial trap 3B): if abortFlag is
+     * non-null and reads true with std::memory_order_seq_cst, the walk
+     * returns early with cause="aborted_for_shutdown". Checked between every
+     * 10 LevelDB reads so mid-walk shutdown latency is bounded by ~10 reads
+     * (millisecond range), not the full walk duration.
+     *
+     * @param snapshot      Vector of (height, blockHash) pairs to verify.
+     * @param failure_out   Populated on failure with height + blockHash + cause.
+     * @param abortFlag     Optional shutdown signal; nullable.
+     * @return true iff every entry has valid undo data; false on first failure
+     *         OR shutdown abort.
+     */
+    bool VerifyUndoDataFromSnapshot(
+        const std::vector<std::pair<int, uint256>>& snapshot,
+        UndoIntegrityFailure& failure_out,
+        const std::atomic<bool>* abortFlag = nullptr);
+
+    /**
+     * v4.4 test-only: write a synthetic undo record for the given block hash.
+     * The payload is SHA3-256-framed (P1-3 protocol) before write so it passes
+     * VerifyUndoChecksum. Production code MUST NOT call this; it exists for
+     * chainstate-integrity test fixtures only.
+     */
+    bool WriteFramedUndoForTesting(const uint256& blockHash,
+                                   const std::vector<uint8_t>& payload);
+
+    /**
+     * v4.4 test-only: delete the undo record for the given block hash.
+     * Simulates the missing-undo corruption mode (incident 2026-04-25).
+     */
+    bool DeleteUndoForTesting(const uint256& blockHash);
+
+    /**
+     * v4.4 test-only: corrupt the undo record for the given block hash by
+     * flipping one byte in the payload (NOT the trailing 32-byte checksum).
+     * After this call, VerifyUndoChecksum returns ChecksumMismatch on the entry.
+     */
+    bool CorruptUndoForTesting(const uint256& blockHash);
 
     /**
      * Flush all pending changes to disk

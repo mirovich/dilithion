@@ -34,6 +34,7 @@
 #include <node/block_processing.h>
 #include <node/mempool.h>
 #include <node/utxo_set.h>
+#include <node/chainstate_integrity_monitor.h>  // v4.4 Block 8
 #include <node/genesis.h>
 #include <node/block_index.h>
 #include <consensus/params.h>
@@ -2337,6 +2338,14 @@ int main(int argc, char* argv[]) {
         std::cout << "  [OK] UTXO set opened" << std::endl;
         g_utxo_set.store(&utxo_set);  // BUG #108 FIX: Set global pointer for TX validation
 
+        // v4.4 Block 8: ChainstateIntegrityMonitor lifecycle.
+        // Constructed AFTER the startup integrity check passes (below); started
+        // via main-loop poll once g_utxo_sync_enabled.load() == true (i.e. IBD
+        // has fully exited). Destructor (Stop() + join) runs when this scope
+        // exits at end of main().
+        std::unique_ptr<Dilithion::ChainstateIntegrityMonitor> integrity_monitor;
+        bool integrity_monitor_started = false;
+
         // Initialize transaction validator
         CTransactionValidator tx_validator;
         g_tx_validator.store(&tx_validator);  // BUG #108 FIX: Set global pointer for TX validation
@@ -2855,35 +2864,75 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
                     }
                 }
 
-                // v4.0.19 Fix B: Startup undo-presence integrity check.
-                // Catches the missing-undo-data corruption mode (incident 2026-04-25)
-                // BEFORE the node starts trying to reorg and loops forever. If any
-                // recent block lacks its undo entry, write auto_rebuild marker and exit.
+                // v4.4 Block 5: Startup chainstate-integrity check (rolling window).
+                // Replaces the v4.0.19 fixed-depth (100-block) probe. Walks every block
+                // in [highest_checkpoint+1 .. tip] via pprev (RT F-1 pattern), verifying
+                // each has a present, SHA3-checksummed undo record. Detects both the
+                // missing-undo-data mode (incident 2026-04-25) and silent checksum
+                // corruption that the v4.0.19 path missed. Window-floor at the highest
+                // checkpoint because (a) deeper history is consensus-anchored,
+                // (b) operators recover by chain-rebuild and the rebuild restart-time
+                // floor IS the checkpoint, so verifying below the checkpoint adds no
+                // operational value. O(N) where N = (tipHeight - highestCheckpoint).
                 {
-                    constexpr int kStartupUndoIntegrityProbeDepth = 100;
-                    uint256 missingHash;
-                    int missingHeight = 0;
-                    if (!g_chainstate.VerifyRecentUndoIntegrity(kStartupUndoIntegrityProbeDepth,
-                                                                missingHash, missingHeight)) {
-                        std::cerr << "\n==========================================================" << std::endl;
-                        std::cerr << "[CRITICAL] Startup integrity check failed: undo data missing"
-                                  << " for block at height " << missingHeight
-                                  << " hash=" << missingHash.GetHex() << std::endl;
-                        std::cerr << "This node cannot perform reorgs without manual recovery."
-                                  << " Writing auto_rebuild marker — node will wipe and resync"
-                                  << " on next launch." << std::endl;
-                        std::cerr << "==========================================================" << std::endl;
-
-                        const std::string reason =
-                            "Startup integrity: undo missing at height " + std::to_string(missingHeight)
-                            + " hash=" + missingHash.GetHex();
-                        Dilithion::WriteAutoRebuildMarker(config.datadir, reason);
-
-                        delete Dilithion::g_chainParams;
-                        return 2;  // Distinguishable exit code; wrapper restarts and wipes
+                    int highestCheckpoint = -1;
+                    if (Dilithion::g_chainParams) {
+                        for (const auto& cp : Dilithion::g_chainParams->checkpoints) {
+                            if (cp.nHeight > highestCheckpoint) highestCheckpoint = cp.nHeight;
+                        }
                     }
-                    std::cout << "  [OK] Startup undo integrity check passed (probed last "
-                              << kStartupUndoIntegrityProbeDepth << " blocks)" << std::endl;
+
+                    const int tipHeight = pindexTip->nHeight;
+                    if (highestCheckpoint < 0) {
+                        std::cout << "  [v4.4] No checkpoints configured — startup integrity check skipped" << std::endl;
+                    } else if (tipHeight <= highestCheckpoint) {
+                        std::cout << "  [v4.4] Tip at height " << tipHeight
+                                  << " not above highest checkpoint " << highestCheckpoint
+                                  << " — startup integrity check skipped" << std::endl;
+                    } else {
+                        const int fromHeight = highestCheckpoint + 1;
+                        const int toHeight = tipHeight;
+                        std::cout << "  [v4.4] Startup integrity check: verifying undo data "
+                                  << "for blocks [" << fromHeight << ".." << toHeight
+                                  << "] via pprev walk..." << std::endl;
+                        UndoIntegrityFailure failure;
+                        if (!utxo_set.VerifyUndoDataInRange(pindexTip, fromHeight, toHeight, failure)) {
+                            std::cerr << "\n==========================================================" << std::endl;
+                            std::cerr << "[CRITICAL] Startup integrity check FAILED at height "
+                                      << failure.height << " hash=" << failure.blockHash.GetHex()
+                                      << " cause=" << failure.cause << std::endl;
+                            std::cerr << "This node cannot perform reorgs without manual recovery."
+                                      << " Writing auto_rebuild marker — node will wipe and resync"
+                                      << " on next launch." << std::endl;
+                            std::cerr << "==========================================================" << std::endl;
+
+                            const std::string reason =
+                                "Startup integrity check failed at height "
+                                + std::to_string(failure.height)
+                                + " cause=" + failure.cause
+                                + " hash=" + failure.blockHash.GetHex();
+                            Dilithion::WriteAutoRebuildMarker(config.datadir, reason);
+
+                            delete Dilithion::g_chainParams;
+                            return 2;  // Distinguishable exit code; wrapper restarts and wipes
+                        }
+                        std::cout << "  [OK] Startup integrity check passed: "
+                                  << (toHeight - fromHeight + 1)
+                                  << " blocks verified clean (pprev walk, O(N))" << std::endl;
+
+                        // v4.4 Block 8: construct the periodic integrity monitor
+                        // ONLY when the startup check actually walked (real chain
+                        // past first checkpoint). Skipped on regtest (no checkpoints)
+                        // and on chains whose tip is at-or-below the highest
+                        // checkpoint, per contract scope item 5.
+                        // Throws std::runtime_error if a second instance is
+                        // constructed in the same process — the unique_ptr scope
+                        // guarantees exactly-one for the lifetime of this run.
+                        // Start() is deferred until the main-loop poll sees
+                        // g_utxo_sync_enabled == true.
+                        integrity_monitor = std::make_unique<Dilithion::ChainstateIntegrityMonitor>(
+                            g_chainstate, utxo_set, config.datadir, &g_node_state.running);
+                    }
                 }
 
                 std::cout << "  [OK] Loaded chain state: " << chainHashes.size() + 1 << " blocks (height "
@@ -7592,6 +7641,20 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
             // --datadir=PATH; startup marker detection reads config.datadir.
             // Divergent paths silently sever recovery on non-default datadirs.
             Dilithion::MaybeTriggerChainRebuild(g_chainstate, config.datadir, &g_node_state.running);
+
+            // v4.4 Block 8: start the periodic integrity monitor once IBD has
+            // fully exited (g_utxo_sync_enabled == true). Lifecycle gate per
+            // RT F-4 — the monitor would otherwise see read-merged LevelDB
+            // state during IBD-tail that masks partial-write durability gaps.
+            // Construction happened post-startup-integrity-check above; we just
+            // need to flip the start-flag once the IBD exit signal fires.
+            if (integrity_monitor && !integrity_monitor_started &&
+                g_utxo_sync_enabled.load(std::memory_order_relaxed)) {
+                integrity_monitor->Start();
+                integrity_monitor_started = true;
+                std::cout << "[v4.4] ChainstateIntegrityMonitor started "
+                          << "(6h cycle, last 500 blocks, snapshot-then-walk)" << std::endl;
+            }
 
             // IBD DEBUG: Log that Tick() returned and main loop continues
             static int main_loop_count = 0;
