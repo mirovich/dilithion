@@ -18,6 +18,9 @@ jobs:
       run: |
         git submodule update --init depends/randomx
         git submodule update --init depends/chiavdf
+        # libzmq is a submodule (depends/libzmq) — required by the Makefile's
+        # `libzmq` target which all node binaries depend on.
+        git submodule update --init depends/libzmq
 
     - name: Install dependencies
       run: |
