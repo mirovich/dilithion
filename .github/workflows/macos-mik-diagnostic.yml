@@ -41,6 +41,7 @@ jobs:
       run: |
         git submodule update --init depends/chiavdf
         git submodule update --init depends/dilithium
+        git submodule update --init depends/libzmq
         git submodule update --init depends/randomx || true
 
     - name: Runner environment

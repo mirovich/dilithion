@@ -18,6 +18,9 @@ jobs:
       run: |
         git submodule update --init depends/chiavdf
         git submodule update --init depends/dilithium
+        # libzmq is a submodule (depends/libzmq) — required by the Makefile's
+        # `libzmq` target which all node binaries depend on.
+        git submodule update --init depends/libzmq
         # RandomX not needed for dilv-node but init to avoid any Makefile errors
         git submodule update --init depends/randomx || true
 
