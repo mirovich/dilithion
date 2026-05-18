@@ -19,6 +19,11 @@
 #include <malloc.h>  // malloc_trim()
 #endif
 
+// macOS: detect Rosetta 2 translation (x86_64 binary on Apple Silicon)
+#ifdef __APPLE__
+#include <sys/sysctl.h>
+#endif
+
 // v4.1-rc2 ISSUE-2 fix: isatty() check for non-interactive stdin detection
 #ifdef _WIN32
 #include <io.h>      // _isatty / _fileno
@@ -2099,6 +2104,31 @@ int main(int argc, char* argv[]) {
     }
     InstallTimestampedStreams();
     LogPrintf(ALL, INFO, "DilV Node starting");
+    {
+        // Platform/architecture diagnostic. macOS ships an x86_64-only release
+        // binary; on Apple Silicon it runs under Rosetta 2. Logging the build
+        // arch + translation status makes platform-specific bug reports (e.g.
+        // MIK registration failures) diagnosable without a round-trip.
+#if defined(__aarch64__) || defined(__arm64__)
+        const char* kBuildArch = "arm64";
+#elif defined(__x86_64__)
+        const char* kBuildArch = "x86_64";
+#else
+        const char* kBuildArch = "unknown";
+#endif
+        std::string archMsg = std::string("Build architecture: ") + kBuildArch;
+#ifdef __APPLE__
+        int translated = 0;
+        size_t tsz = sizeof(translated);
+        if (sysctlbyname("sysctl.proc_translated", &translated, &tsz, nullptr, 0) == 0
+            && translated == 1) {
+            archMsg += " (running under Rosetta 2 translation on Apple Silicon)";
+        } else {
+            archMsg += " (running natively)";
+        }
+#endif
+        LogPrintf(ALL, INFO, "%s", archMsg.c_str());
+    }
     LogPrintf(ALL, INFO, "Data directory: %s", config.datadir.c_str());
     LogPrintf(ALL, INFO, "P2P port: %d", config.p2pport);
     LogPrintf(ALL, INFO, "RPC port: %d", config.rpcport);
