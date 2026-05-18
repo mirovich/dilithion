@@ -221,6 +221,10 @@ ChainParams ChainParams::Mainnet() {
     params.checkpoints.emplace_back(34000, uint256S("00000009b2312644f10b286934ed982520e92aaa54b2736e46f365a77bd92d98"));
     params.checkpoints.emplace_back(40000, uint256S("000000271909e84a5a31fe60c27a9e40a2a51828efc89c6af059a2db2f6e2576"));
     params.checkpoints.emplace_back(44000, uint256S("0000002751fc99551f4fce1f2e92053b2432788f1dc12412fd81223204d11377"));
+    // v4.4.1 rolling checkpoint. Verified unanimous across all 4 DIL mainnet
+    // seeds (NYC/LDN/SGP/SYD) via getblockhash{height:54000} on 2026-05-19;
+    // fleet was in full consensus at tip 54793.
+    params.checkpoints.emplace_back(54000, uint256S("0000000bb44c964b4e3c6fec8c15941738cd74b434bafbfe4aadce898140b993"));
 
     // ASSUME-VALID: Skip DFMP penalty validation below this block
     // Empty = validate everything (populate after mainnet has established blocks)
@@ -638,6 +642,13 @@ ChainParams ChainParams::DilV() {
     // [49001..tip]. Decision (k) mandates max 4 weeks between v4.x releases so
     // the rolling-checkpoint cadence stays operational.
     params.checkpoints.emplace_back(49000, uint256S("de4316096f6993e4263c562130317810011ecc9f14f20b49022fefa6e8d28f17"));
+
+    // v4.4.1 rolling checkpoint (decision (j)/(k) cadence — becomes the new
+    // highest_checkpoint, narrowing the chainstate-integrity window to
+    // [67001..tip]). Verified unanimous across all 4 DilV mainnet seeds
+    // (NYC/LDN/SGP/SYD) via getblockhash{height:67000} on 2026-05-19; fleet
+    // was in full consensus at tip 68000.
+    params.checkpoints.emplace_back(67000, uint256S("c929e38f1709c04c3174627edfe03c57eefdc36846d9d74ab32f899979205eff"));
 
     // v4.1 lifetime-miner deterministic snapshot (closes CRIT-1 from
     // v0.1 spec review — non-deterministic Patch C lifetime gate at
