@@ -1,0 +1,117 @@
+name: macOS MIK Registration Diagnostic
+
+# Manual-only diagnostic workflow. Purpose: investigate macOS-specific reports
+# of MIK registration "not working properly" on DilV.
+#
+# It builds dilv-node on BOTH macOS architectures and reports, for each:
+#   - the runner architecture (uname / sysctl)
+#   - the ACTUAL architecture of the produced binary (file / lipo)
+#   - the dynamic libraries it links against (otool -L) -> tests the
+#     "missing/mis-bundled Homebrew dylib" hypothesis
+#   - whether the binary launches and fully initializes (--help + a short
+#     --relay-only run, which captures the new "Build architecture:" log line
+#     and the registration-manager [mik-reg] instrumentation if reached)
+#
+# It deliberately does NOT attempt a live MIK registration against the
+# production DilV seed nodes: that would consume per-/24 attestation
+# rate-limit quota on production infrastructure. A follow-up iteration can
+# add a testnet registration run once the arch hypotheses are settled.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnostic:
+    name: dilv-node on ${{ matrix.label }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-13   # Intel x86_64
+            label: Intel (macos-13)
+          - runner: macos-14   # Apple Silicon arm64
+            label: Apple Silicon (macos-14)
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Checkout submodules
+      run: |
+        git submodule update --init depends/chiavdf
+        git submodule update --init depends/dilithium
+        git submodule update --init depends/randomx || true
+
+    - name: Runner environment
+      run: |
+        echo "=== Runner architecture ==="
+        uname -mrs
+        arch || true
+        sysctl -n machdep.cpu.brand_string || true
+        sw_vers || true
+
+    - name: Install dependencies
+      run: |
+        brew install leveldb cmake openssl miniupnpc gmp
+
+    - name: Build RandomX (for shared Makefile compatibility)
+      run: |
+        cd depends/randomx
+        mkdir -p build
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Release
+        make -j$(sysctl -n hw.ncpu)
+
+    - name: Build dilv-node
+      run: |
+        OPENSSL_PREFIX=$(brew --prefix openssl@3 2>/dev/null || brew --prefix openssl 2>/dev/null || echo "/opt/homebrew/opt/openssl@3")
+        MINIUPNPC_PREFIX=$(brew --prefix miniupnpc)
+        GMP_PREFIX=$(brew --prefix gmp)
+        export CPPFLAGS="-I$OPENSSL_PREFIX/include -I$MINIUPNPC_PREFIX/include -I$GMP_PREFIX/include"
+        export LDFLAGS="-L$OPENSSL_PREFIX/lib -Ldepends/randomx/build -L$(brew --prefix leveldb)/lib -L$MINIUPNPC_PREFIX/lib -L$GMP_PREFIX/lib"
+        export CFLAGS="-I$OPENSSL_PREFIX/include -I$MINIUPNPC_PREFIX/include -I$GMP_PREFIX/include"
+        export CXXFLAGS="-std=c++17 -I$OPENSSL_PREFIX/include -I$MINIUPNPC_PREFIX/include -I$GMP_PREFIX/include"
+        make clean
+        make dilv-node -j$(sysctl -n hw.ncpu)
+        ls -lh dilv-node
+
+    - name: Binary architecture and linkage
+      run: |
+        echo "=== file ==="
+        file dilv-node
+        echo "=== lipo -info ==="
+        lipo -info dilv-node || true
+        echo "=== otool -L (linked dynamic libraries) ==="
+        otool -L dilv-node || true
+
+    - name: Launch test (--help)
+      run: |
+        echo "Exercising binary execution on this architecture..."
+        ./dilv-node --help
+        echo "Exit code: $? (0 = binary executes on this arch)"
+
+    - name: Short relay-only run (captures startup + arch log line)
+      continue-on-error: true
+      run: |
+        # --relay-only skips the wallet wizard entirely; benign (no mining,
+        # no registration). 60s is enough to capture full init + the new
+        # "Build architecture:" log line.
+        mkdir -p diagdir
+        timeout 60 ./dilv-node --datadir=./diagdir --relay-only --verbose \
+          > relay-run-stdout.log 2>&1 || true
+        echo "=== relay-run-stdout.log (tail) ==="
+        tail -n 120 relay-run-stdout.log || true
+        echo "=== datadir log files ==="
+        ls -la diagdir || true
+        find diagdir -name '*.log' -exec sh -c 'echo "--- {} ---"; tail -n 120 "{}"' \; || true
+
+    - name: Upload diagnostic logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: mik-diagnostic-${{ matrix.runner }}
+        path: |
+          relay-run-stdout.log
+          diagdir/*.log
+        if-no-files-found: warn

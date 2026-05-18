@@ -3,6 +3,8 @@
 
 #include <node/registration_manager.h>
 
+#include <util/logging.h>
+
 #include <algorithm>
 #include <chrono>
 #include <ctime>
@@ -446,6 +448,8 @@ void CRegistrationManager::HandleDnaPending_() {
         bool allZero = std::all_of(hash.begin(), hash.end(),
                                    [](uint8_t b) { return b == 0; });
         if (!allZero) {
+            LogPrintf(MINING, INFO, "[mik-reg] DNA hash collected after %u poll(s)",
+                      session_.dnaPolls);
             session_.dnaHash = hash;
             session_.hasDnaHash = true;
             Transition_(Event::DNA_READY);
@@ -453,7 +457,10 @@ void CRegistrationManager::HandleDnaPending_() {
             return;
         }
     }
-    // Not ready yet — wake again in dnaPollInterval_.
+    // Not ready yet — wake again in dnaPollInterval_. DEBUG level (--verbose)
+    // to avoid steady-state noise; visible in diagnostic runs.
+    LogPrintf(MINING, DEBUG, "[mik-reg] DNA not ready yet (poll %u) — retrying",
+              session_.dnaPolls);
     nextRetryAt_ = std::chrono::system_clock::now() + dnaPollInterval_;
 }
 
@@ -482,6 +489,9 @@ void CRegistrationManager::HandleAttestPending_() {
     uint64_t sessionId = session_.sessionId;
 
     stateMutex_.unlock();
+    LogPrintf(MINING, INFO, "[mik-reg] requesting attestations from seed nodes "
+              "(attempt %d/%d)",
+              session_.attestationRetries + 1, maxAttestationRetries_);
     Attestation::CAttestationSet fresh;
     std::string err;
     bool ok = env_->CollectAttestations(pubkey, dnaHash, fresh, err);
@@ -492,6 +502,7 @@ void CRegistrationManager::HandleAttestPending_() {
     if (session_.sessionId != sessionId || shutdownRequested_.load()) return;
 
     if (ok) {
+        LogPrintf(MINING, INFO, "[mik-reg] attestations collected successfully");
         session_.attestations =
             std::make_unique<Attestation::CAttestationSet>(std::move(fresh));
         session_.hasValidAttestations = true;
@@ -530,6 +541,8 @@ void CRegistrationManager::HandlePowPending_() {
     uint64_t sessionId = session_.sessionId;
     int bits = env_->RegistrationPowBits();
 
+    LogPrintf(MINING, INFO, "[mik-reg] starting registration PoW (%d bits) — "
+              "this can take 15-30 minutes", bits);
     powRunning_.store(true);
     stateMutex_.unlock();
     uint64_t nonce = 0;
@@ -542,6 +555,8 @@ void CRegistrationManager::HandlePowPending_() {
     }
 
     if (ok) {
+        LogPrintf(MINING, INFO, "[mik-reg] registration PoW solved (nonce=%llu)",
+                  static_cast<unsigned long long>(nonce));
         session_.regNonce = nonce;
         session_.hasRegNonce = true;
         // Persist only once we have a fully coherent (pubkey, dna, nonce).
@@ -707,6 +722,13 @@ void CRegistrationManager::Transition_(Event ev, const std::string& detail) {
 
 void CRegistrationManager::EnterState_(State s) {
     if (state_ == s) return;
+    // [mik-reg] Boundary instrumentation: every registration state transition
+    // is logged so a stuck/looping miner (any platform) leaves a diagnosable
+    // trail. INFO level — always visible without --verbose.
+    LogPrintf(MINING, INFO, "[mik-reg] state: %s -> %s (tip=%u session=%llu)",
+              StateToString(state_), StateToString(s),
+              latestTipHeight_.load(),
+              static_cast<unsigned long long>(session_.sessionId));
     state_ = s;
     // Clear retry timer when transitioning to a non-backoff state.
     if (s != State::LONG_BACKOFF_USER_ACTIONABLE &&
@@ -870,6 +892,8 @@ void CRegistrationManager::OnTransientError_(const std::string& err,
                                              std::chrono::seconds backoff) {
     lastError_ = err;
     nextRetryAt_ = std::chrono::system_clock::now() + backoff;
+    LogPrintf(MINING, WARN, "[mik-reg] transient error: %s (retry in %llds)",
+              err.c_str(), static_cast<long long>(backoff.count()));
 }
 
 void CRegistrationManager::OnUserActionRequired_(const std::string& err,
@@ -878,11 +902,14 @@ void CRegistrationManager::OnUserActionRequired_(const std::string& err,
     lastError_ = err;
     userActionHint_ = hint;
     nextRetryAt_ = std::chrono::system_clock::now() + backoff;
+    LogPrintf(MINING, WARN, "[mik-reg] user action required: %s | hint: %s",
+              err.c_str(), hint.c_str());
     EnterState_(State::LONG_BACKOFF_USER_ACTIONABLE);
 }
 
 void CRegistrationManager::OnFatalError_(const std::string& err) {
     lastError_ = err;
+    LogPrintf(MINING, ERROR, "[mik-reg] FATAL: %s", err.c_str());
     EnterState_(State::FAILED_FATAL);
 }
 
