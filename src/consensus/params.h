@@ -73,8 +73,42 @@ static const size_t MAX_BASE58_LENGTH = 1024;
 /** Maximum RPC request size in bytes (1 MB limit) */
 static const size_t MAX_REQUEST_SIZE = 1024 * 1024;
 
-/** Maximum block size in bytes (1 MB, same as early Bitcoin) */
-static const size_t MAX_BLOCK_SIZE = 1000000;
+/**
+ * Maximum block size in bytes (4 MB).
+ *
+ * Sized for post-quantum signatures (ML-DSA), which are far larger than ECDSA.
+ * This is the SINGLE SOURCE OF TRUTH for the block `vtx` serialized-blob byte
+ * size: every block-size-limit site (storage write, P2P receive, mining
+ * templates, the dead CheckBlock validator) must reference this constant —
+ * no local hard-coded literals.
+ */
+static const size_t MAX_BLOCK_SIZE = 4 * 1024 * 1024;
+
+/**
+ * Safety margin (16 KB) subtracted from MAX_BLOCK_SIZE when building mining
+ * templates. Size estimates during transaction selection have small jitter;
+ * budgeting against MAX_BLOCK_SIZE - BLOCK_SIZE_SAFETY_MARGIN guarantees the
+ * finished template can never produce a block the storage/consensus layer
+ * rejects as oversize.
+ */
+static const size_t BLOCK_SIZE_SAFETY_MARGIN = 16 * 1024;
+
+/**
+ * Upper-bound byte overhead of a coinbase transaction EXCLUDING its scriptSig.
+ *
+ * BUG-003 Bug B: mining-template builders that finalize the coinbase scriptSig
+ * before knowing the final vout can seed their size budget with
+ *   coinbaseScriptSig.size() + COINBASE_NON_SCRIPTSIG_OVERHEAD
+ * instead of a flat (and badly-undersized) 200-byte estimate.
+ *
+ * Covers, generously: 4-byte version + 4-byte locktime + vin count varint +
+ * 32-byte prevout hash + 4-byte prevout index + 4-byte nSequence +
+ * scriptSig-length varint + vout count varint + up to 3 outputs, each an
+ * 8-byte nValue + a script-length varint + a ~25-byte P2PKH script. 256 bytes
+ * comfortably exceeds that (~150 bytes actual) and also absorbs the block
+ * tx-count varint prefix.
+ */
+static const size_t COINBASE_NON_SCRIPTSIG_OVERHEAD = 256;
 
 //==============================================================================
 // Port Range Validation

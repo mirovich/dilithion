@@ -165,7 +165,7 @@ bool CheckProofOfWorkDFMP(
     // check for VDF blocks (their "PoW" is the VDF proof, not RandomX).
     if (block.IsVDFBlock()) {
         if (Dilithion::g_chainParams && height >= Dilithion::g_chainParams->vdfActivationHeight) {
-            return true;  // VDF proof checked separately in CheckBlock()
+            return true;  // VDF proof checked separately by CheckVDFProof() in the block validation pipeline
         }
         // VDF block before activation height is invalid.
         return false;

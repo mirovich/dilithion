@@ -141,9 +141,11 @@ bool CBlockValidationQueue::QueueBlock(int peer_id, const CBlock& block, int exp
 
     // Coinbase validation removed from QueueBlock - it passed fees=0 which rejected
     // valid blocks that collected transaction fees, and banned the sending peer.
-    // Coinbase is validated authoritatively in:
-    // 1. ProcessNewBlock Phase 2.5 (with correct fee calculation)
-    // 2. ConnectTip → CheckBlock (final validation)
+    // Coinbase is validated authoritatively in ProcessNewBlock Phase 2.5 (with
+    // correct fee calculation) and again as part of ConnectTip's checks.
+    // NOTE: CBlockValidator::CheckBlock is NOT in this path — it is dead code
+    // (zero callers). Block-size enforcement is done by the storage-layer 4 MB
+    // cap (blockchain_storage.cpp) and the P2P MAX_BLOCK_VTX_BYTES cap (net.cpp).
 
     // Check if we already have this block
     CBlockIndex* existing = m_chainstate.GetBlockIndex(blockHash);
