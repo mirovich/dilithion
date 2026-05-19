@@ -819,16 +819,26 @@ std::vector<CTransactionRef> CMiningController::SelectTransactionsForBlock(
     CUTXOSet& utxoSet,
     uint32_t nHeight,
     size_t maxBlockSize,
+    size_t coinbaseReserve,
     uint64_t& totalFees
 ) {
     std::vector<CTransactionRef> selectedTxs;
     totalFees = 0;
 
-    // Reserve space for coinbase (conservative estimate: 200 bytes)
-    size_t currentBlockSize = 200;
+    // BUG-003 Bug B: seed the size budget from the coinbase's REAL serialized
+    // size (passed in by the caller), not a flat 200-byte estimate. The real
+    // coinbase carries up to ~5.3 KB of MIK scriptSig + up to 3 outputs.
+    // Add a generous varint allowance for the block tx-count prefix.
+    static constexpr size_t TX_COUNT_VARINT_ALLOWANCE = 9;  // max varint width
+    size_t currentBlockSize = coinbaseReserve + TX_COUNT_VARINT_ALLOWANCE;
 
-    // Maximum block size (1 MB)
-    const size_t MAX_BLOCK_SIZE = maxBlockSize > 0 ? maxBlockSize : 1000000;
+    // Maximum block size — single source of truth Consensus::MAX_BLOCK_SIZE (4 MB).
+    const size_t cap = maxBlockSize > 0 ? maxBlockSize : Consensus::MAX_BLOCK_SIZE;
+    // BUG-003 F-05: budget against the cap minus a safety margin so size-estimate
+    // jitter never produces a block the storage/consensus layer rejects.
+    const size_t MAX_BLOCK_SIZE = cap > Consensus::BLOCK_SIZE_SAFETY_MARGIN
+                                      ? cap - Consensus::BLOCK_SIZE_SAFETY_MARGIN
+                                      : cap;
 
     // MINE-007 FIX: Resource limits to prevent DoS
     // Limit number of candidates to prevent unbounded iteration
@@ -983,6 +993,25 @@ std::optional<CBlockTemplate> CMiningController::CreateBlockTemplate(
         return std::nullopt;
     }
 
+    // BUG-003 Bug B: build the coinbase BEFORE transaction selection so the
+    // selection loop can budget against the coinbase's real serialized size.
+    // The coinbase serialized size is fee-independent — fees change only the
+    // fixed-width 8-byte nValue; output count and script sizes do not depend on
+    // fees (contract R2). We therefore build a probe coinbase with totalFees=0
+    // here purely to measure its size, then rebuild with the real fees below.
+    BENCHMARK_START("mining_create_coinbase");
+    CTransactionRef coinbaseTx;
+    try {
+        coinbaseTx = CreateCoinbaseTransaction(nHeight, /*totalFees=*/0, minerAddress, mikData);
+    } catch (const std::runtime_error& e) {
+        error = std::string("Coinbase creation failed: ") + e.what();
+        (void)BENCHMARK_END("mining_create_coinbase");
+        (void)BENCHMARK_END("mining_create_template");
+        return std::nullopt;
+    }
+    const size_t coinbaseReserve = coinbaseTx->GetSerializedSize();
+    (void)BENCHMARK_END("mining_create_coinbase");
+
     // Step 1: Select transactions from mempool
     BENCHMARK_START("mining_select_txs");
     uint64_t totalFees = 0;
@@ -990,15 +1019,15 @@ std::optional<CBlockTemplate> CMiningController::CreateBlockTemplate(
         mempool,
         utxoSet,
         nHeight,  // Pass height for coinbase maturity validation
-        1000000,  // 1 MB max block size
+        Consensus::MAX_BLOCK_SIZE,  // BUG-003: single source of truth (4 MB)
+        coinbaseReserve,            // BUG-003 Bug B: real coinbase size
         totalFees
     );
     (void)BENCHMARK_END("mining_select_txs");
 
-    // Step 2: Create coinbase transaction
-    // MINE-001 FIX: Catch overflow exceptions from coinbase creation
+    // Step 2: Rebuild the coinbase with the real total fees now that selection
+    // is done. Size is unchanged vs. the probe coinbase above (fee-independent).
     BENCHMARK_START("mining_create_coinbase");
-    CTransactionRef coinbaseTx;
     try {
         coinbaseTx = CreateCoinbaseTransaction(nHeight, totalFees, minerAddress, mikData);
     } catch (const std::runtime_error& e) {
@@ -1215,7 +1244,10 @@ std::optional<CBlockTemplate> CMiningController::CreateBlockTemplate(
     const size_t BLOCK_HEADER_SIZE = 80;
     size_t totalBlockSize = BLOCK_HEADER_SIZE + block.vtx.size();
 
-    // Enforce consensus maximum block size (1 MB)
+    // Enforce consensus maximum block size (Consensus::MAX_BLOCK_SIZE, 4 MB).
+    // Conservative: counts the 80-byte header on top of the vtx blob, whereas
+    // the storage layer caps the vtx blob alone — so this never lets through a
+    // block the storage layer would reject.
     if (totalBlockSize > Consensus::MAX_BLOCK_SIZE) {
         error = "Block size exceeds consensus maximum: " +
                 std::to_string(totalBlockSize) + " > " +

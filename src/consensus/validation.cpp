@@ -495,13 +495,14 @@ bool CBlockValidator::CheckBlock(
     // Check cheap conditions first before expensive PoW validation
 
     // P1-5 FIX: Block size limit - check serialized transaction data size
-    // MAX_BLOCK_SIZE = 1MB (like Bitcoin's original limit)
+    // BUG-003: use the single source of truth Consensus::MAX_BLOCK_SIZE (4 MB).
     // Note: block.vtx is a vector<uint8_t> containing serialized transaction data
-    static constexpr size_t MAX_BLOCK_SIZE = 1000000;  // 1 MB
+    // NOTE: this CheckBlock member is currently dead code (zero callers); the
+    // active enforcement is the storage-layer cap and the P2P MAX_BLOCK_VTX_BYTES.
 
     // Check serialized transaction data size
-    if (block.vtx.size() > MAX_BLOCK_SIZE) {
-        error = "Block transaction data exceeds maximum size (" + std::to_string(block.vtx.size()) + " > " + std::to_string(MAX_BLOCK_SIZE) + " bytes)";
+    if (block.vtx.size() > Consensus::MAX_BLOCK_SIZE) {
+        error = "Block transaction data exceeds maximum size (" + std::to_string(block.vtx.size()) + " > " + std::to_string(Consensus::MAX_BLOCK_SIZE) + " bytes)";
         return false;
     }
 

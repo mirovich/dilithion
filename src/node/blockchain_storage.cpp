@@ -8,6 +8,7 @@
 #include <leveldb/options.h>
 #include <leveldb/iterator.h>  // Phase 4.2: For reindex iteration
 #include <crypto/sha3.h>  // DB-001 FIX: For SHA-256 checksums
+#include <consensus/params.h>  // BUG-003: single source of truth for MAX_BLOCK_SIZE
 #include <db/db_errors.h>  // Phase 4.2: Enhanced error handling
 #include <util/logging.h>  // Phase 4.2: Use structured logging
 #include <cstring>
@@ -270,8 +271,8 @@ bool CBlockchainDB::WriteBlock(const uint256& hash, const CBlock& block) {
         return false;
     }
     // DB-005 FIX: Enforce maximum block size (4 MB consensus limit)
-    const size_t MAX_BLOCK_SIZE = 4 * 1024 * 1024;
-    if (block.vtx.size() > MAX_BLOCK_SIZE) {
+    // BUG-003: reference the single source of truth Consensus::MAX_BLOCK_SIZE.
+    if (block.vtx.size() > Consensus::MAX_BLOCK_SIZE) {
         ErrorMessage error = CErrorFormatter::ValidationError("block", 
             "Block exceeds maximum size (4 MB)");
         std::cerr << CErrorFormatter::FormatForUser(error) << std::endl;
@@ -391,8 +392,9 @@ bool CBlockchainDB::ReadBlock(const uint256& hash, CBlock& block) {
     offset += sizeof(data_length);
 
     // DB-012 FIX: Validate data_length is reasonable (max 4 MB block size)
-    const uint32_t MAX_BLOCK_SIZE = 4 * 1024 * 1024;
-    if (data_length > MAX_BLOCK_SIZE) {
+    // BUG-003 M-1: use the unified Consensus::MAX_BLOCK_SIZE constant rather than
+    // a local literal so the read-path cap tracks the single source of truth.
+    if (data_length > Consensus::MAX_BLOCK_SIZE) {
         ErrorMessage error = CErrorFormatter::DatabaseError("read block", 
             "Data length exceeds maximum (4 MB)");
         std::cerr << CErrorFormatter::FormatForUser(error) << std::endl;

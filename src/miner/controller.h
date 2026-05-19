@@ -304,6 +304,9 @@ private:
     friend void test_merkle_root_calculation();
     friend void test_block_validation_no_duplicates();
     friend void test_subsidy_consistency();
+    // BUG-003 F-06: Bug-B regression test drives SelectTransactionsForBlock /
+    // CreateCoinbaseTransaction directly. Test-access only; no behaviour change.
+    friend void test_template_overshoot_regression_bug_b();
 
     /**
      * SelectTransactionsForBlock - Choose transactions from mempool
@@ -314,7 +317,12 @@ private:
      * @param mempool Transaction mempool
      * @param utxoSet UTXO set for input validation
      * @param nHeight Current block height (for coinbase maturity validation)
-     * @param maxBlockSize Maximum block size in bytes (default: 1MB)
+     * @param maxBlockSize Maximum block size in bytes (0 = use Consensus::MAX_BLOCK_SIZE fallback).
+     *        Must be 0 or a sane value >= the coinbase reserve; a tiny positive value
+     *        yields a budget smaller than the coinbase seed and selects zero transactions.
+     * @param coinbaseReserve Real serialized size of the coinbase transaction
+     *        (BUG-003: replaces the old flat 200-byte estimate). The size budget
+     *        is seeded from this so a saturated template cannot overshoot the cap.
      * @param totalFees Output: total fees from selected transactions
      * @return Vector of selected transactions
      */
@@ -323,6 +331,7 @@ private:
         CUTXOSet& utxoSet,
         uint32_t nHeight,
         size_t maxBlockSize,
+        size_t coinbaseReserve,
         uint64_t& totalFees
     );
 

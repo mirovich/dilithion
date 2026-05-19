@@ -1387,9 +1387,19 @@ std::optional<CBlockTemplate> BuildMiningTemplate(CBlockchainDB& blockchain, CWa
 
         // Limit candidates and set resource limits
         const size_t MAX_CANDIDATES = 50000;
-        const size_t MAX_BLOCK_SIZE = Dilithion::g_chainParams
-            ? Dilithion::g_chainParams->maxBlockSize : 4 * 1024 * 1024;  // Use chain params (4 MB)
-        size_t currentBlockSize = 200;  // Reserve for coinbase
+        // chainParams->maxBlockSize is kept in lockstep with Consensus::MAX_BLOCK_SIZE (4 MB).
+        const size_t chainMaxBlockSize = Dilithion::g_chainParams
+            ? Dilithion::g_chainParams->maxBlockSize : Consensus::MAX_BLOCK_SIZE;
+        // BUG-003 F-05: budget against the cap minus a safety margin so size-estimate
+        // jitter never produces a block the storage/consensus layer rejects.
+        const size_t MAX_BLOCK_SIZE = chainMaxBlockSize > Consensus::BLOCK_SIZE_SAFETY_MARGIN
+            ? chainMaxBlockSize - Consensus::BLOCK_SIZE_SAFETY_MARGIN
+            : chainMaxBlockSize;
+        // BUG-003 Bug B: seed the budget from the coinbase's real size, not a flat
+        // 200. The coinbase scriptSig is already finalized above; its outputs are
+        // added after this loop but COINBASE_NON_SCRIPTSIG_OVERHEAD upper-bounds
+        // version + vin framing + up to 3 outputs + locktime + tx-count varint.
+        size_t currentBlockSize = scriptSig.size() + Consensus::COINBASE_NON_SCRIPTSIG_OVERHEAD;
 
         if (candidateTxs.size() > MAX_CANDIDATES) {
             candidateTxs.resize(MAX_CANDIDATES);
@@ -1596,6 +1606,18 @@ std::optional<CBlockTemplate> BuildMiningTemplate(CBlockchainDB& blockchain, CWa
     for (const auto& tx : selectedTxs) {
         std::vector<uint8_t> txData = tx->Serialize();
         block.vtx.insert(block.vtx.end(), txData.begin(), txData.end());
+    }
+
+    // BUG-003 L-1: Final post-assembly block-size guard. The in-loop budget plus
+    // the F-05 safety margin should keep the assembled blob within the cap, but
+    // mirror controller.cpp:1251's independent final check so this daemon-side
+    // path is not the only one without a backstop. Abort the template if it
+    // overshoots — the miner keeps its previous valid template.
+    if (block.vtx.size() > Consensus::MAX_BLOCK_SIZE) {
+        std::cerr << "[Mining] Template rejected - assembled block size "
+                  << block.vtx.size() << " exceeds consensus maximum "
+                  << Consensus::MAX_BLOCK_SIZE << " bytes" << std::endl;
+        return std::nullopt;
     }
 
     // BUG #109 FIX: Calculate merkle root from ALL transaction hashes

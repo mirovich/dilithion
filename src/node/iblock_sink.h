@@ -37,9 +37,11 @@ public:
     virtual ~IBlockSink() = default;
 
     // Submit a block received from a peer. Returns the validation outcome.
-    // The implementation is expected to call into the chain selector
-    // (which goes through CheckBlock -> ContextualCheckBlock -> ConnectBlock
-    // -> ActivateBestChain).
+    // The implementation is expected to call into the chain selector, which
+    // runs ProcessNewBlock then ConnectTip/ActivateBestChain. Block-size limits
+    // are enforced by the P2P receive layer (MAX_BLOCK_VTX_BYTES, net.cpp) and
+    // the storage-layer 4 MB cap (blockchain_storage.cpp) — NOT by
+    // CBlockValidator::CheckBlock, which is dead code with zero callers.
     //
     // CONSENSUS BOUNDARY: the implementation MUST call ProcessNewBlock
     // exactly once with the same arguments today's code uses. No new

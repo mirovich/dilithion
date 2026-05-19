@@ -4,6 +4,7 @@
 #include "fuzz.h"
 #include "util.h"
 #include "../../primitives/block.h"
+#include <consensus/params.h>
 #include <vector>
 #include <cstring>
 
@@ -129,7 +130,7 @@ FUZZ_TARGET(block_deserialize)
 
         // Check transactions
         size_t tx_count = block.vtx.size();
-        if (tx_count > MAX_BLOCK_SIZE / 100) {
+        if (tx_count > Consensus::MAX_BLOCK_SIZE / 100) {
             // Too many transactions
             return;
         }
@@ -154,7 +155,7 @@ FUZZ_TARGET(block_deserialize)
         ss_out << block;
 
         // Check size is reasonable
-        if (ss_out.size() > MAX_BLOCK_SIZE) {
+        if (ss_out.size() > Consensus::MAX_BLOCK_SIZE) {
             return;
         }
 
@@ -238,7 +239,7 @@ FUZZ_TARGET(block_validation)
 
         // 1. Check block size
         size_t block_size = ::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION);
-        if (block_size > MAX_BLOCK_SIZE) {
+        if (block_size > Consensus::MAX_BLOCK_SIZE) {
             // Block too large
             return;
         }
