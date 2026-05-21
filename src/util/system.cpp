@@ -361,3 +361,35 @@ bool AtomicCreateFile(const std::string& file_path) {
     return true;
 #endif
 }
+
+#include <fstream>
+#include <filesystem>
+
+void SaveMinerAddress(const std::string& datadir, const std::string& address) {
+    try {
+        std::filesystem::path path = std::filesystem::path(datadir) / "miner_address.dat";
+        std::ofstream file(path);
+        if (file.is_open()) {
+            file << address;
+            file.close();
+        }
+    } catch (...) {
+        // Best effort
+    }
+}
+
+std::string LoadMinerAddress(const std::string& datadir) {
+    try {
+        std::filesystem::path path = std::filesystem::path(datadir) / "miner_address.dat";
+        std::ifstream file(path);
+        if (file.is_open()) {
+            std::string address;
+            file >> address;
+            file.close();
+            return address;
+        }
+    } catch (...) {
+        // Best effort
+    }
+    return "";
+}

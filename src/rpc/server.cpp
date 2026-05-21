@@ -44,6 +44,7 @@
 #include <script/script.h>      // CScript, opcodes
 #include <script/atomic_swap.h> // Atomic swap state machine
 #include <util/strencodings.h>
+#include <util/system.h>
 #include <attestation/seed_attestation.h>
 #include <net/asn_database.h>
 #include <util/error_format.h>  // UX: Better error messages
@@ -2208,7 +2209,7 @@ std::string CRPCServer::EscapeJSON(const std::string& str) const {
 // ----------------------------------------------------------------------------
 
 std::string CRPCServer::RPC_GetNewAddress(const std::string& params) {
-    if (!m_wallet) {
+    if (!m_wallet && g_node_state.mining_address_override.empty()) {
         throw std::runtime_error("Wallet not initialized");
     }
 
@@ -2230,7 +2231,7 @@ std::string CRPCServer::RPC_GetNewAddress(const std::string& params) {
 }
 
 std::string CRPCServer::RPC_GetBalance(const std::string& params) {
-    if (!m_wallet) {
+    if (!m_wallet && g_node_state.mining_address_override.empty()) {
         throw std::runtime_error("Wallet not initialized");
     }
     if (!m_utxo_set) {
@@ -2270,7 +2271,7 @@ std::string CRPCServer::RPC_GetBalance(const std::string& params) {
 }
 
 std::string CRPCServer::RPC_GetAddresses(const std::string& params) {
-    if (!m_wallet) {
+    if (!m_wallet && g_node_state.mining_address_override.empty()) {
         throw std::runtime_error("Wallet not initialized");
     }
 
@@ -2287,7 +2288,7 @@ std::string CRPCServer::RPC_GetAddresses(const std::string& params) {
 }
 
 std::string CRPCServer::RPC_ListUnspent(const std::string& params) {
-    if (!m_wallet) {
+    if (!m_wallet && g_node_state.mining_address_override.empty()) {
         throw std::runtime_error("Wallet not initialized");
     }
     if (!m_utxo_set) {
@@ -2328,7 +2329,7 @@ std::string CRPCServer::RPC_ListUnspent(const std::string& params) {
 // ----------------------------------------------------------------------------
 
 std::string CRPCServer::RPC_SendToAddress(const std::string& params) {
-    if (!m_wallet) {
+    if (!m_wallet && g_node_state.mining_address_override.empty()) {
         throw std::runtime_error("Wallet not initialized");
     }
     if (!m_mempool) {
@@ -2479,7 +2480,7 @@ std::string CRPCServer::RPC_SendToAddress(const std::string& params) {
 }
 
 std::string CRPCServer::RPC_ConsolidateUTXOs(const std::string& params) {
-    if (!m_wallet) {
+    if (!m_wallet && g_node_state.mining_address_override.empty()) {
         throw std::runtime_error("Wallet not initialized");
     }
     if (!m_utxo_set) {
@@ -2654,7 +2655,7 @@ std::string CRPCServer::RPC_ConsolidateUTXOs(const std::string& params) {
 }
 
 std::string CRPCServer::RPC_EstimateSendFee(const std::string& params) {
-    if (!m_wallet) {
+    if (!m_wallet && g_node_state.mining_address_override.empty()) {
         throw std::runtime_error("Wallet not initialized");
     }
     if (!m_utxo_set) {
@@ -2766,7 +2767,7 @@ std::string CRPCServer::RPC_EstimateSendFee(const std::string& params) {
 }
 
 std::string CRPCServer::RPC_SignRawTransaction(const std::string& params) {
-    if (!m_wallet) {
+    if (!m_wallet && g_node_state.mining_address_override.empty()) {
         throw std::runtime_error("Wallet not initialized");
     }
     if (!m_utxo_set) {
@@ -3194,7 +3195,7 @@ std::string CRPCServer::RPC_GetTransaction(const std::string& params) {
 }
 
 std::string CRPCServer::RPC_ListTransactions(const std::string& params) {
-    if (!m_wallet) {
+    if (!m_wallet && g_node_state.mining_address_override.empty()) {
         throw std::runtime_error("Wallet not initialized");
     }
     if (!m_utxo_set) {
@@ -4001,7 +4002,7 @@ std::string CRPCServer::RPC_GetTopHolders(const std::string& params) {
 }
 
 std::string CRPCServer::RPC_GetWalletInfo(const std::string& params) {
-    if (!m_wallet) {
+    if (!m_wallet && g_node_state.mining_address_override.empty()) {
         throw std::runtime_error("Wallet not initialized");
     }
 
@@ -4019,7 +4020,7 @@ std::string CRPCServer::RPC_GetWalletInfo(const std::string& params) {
 }
 
 std::string CRPCServer::RPC_EncryptWallet(const std::string& params) {
-    if (!m_wallet) {
+    if (!m_wallet && g_node_state.mining_address_override.empty()) {
         throw std::runtime_error("Wallet not initialized");
     }
 
@@ -4061,7 +4062,7 @@ std::string CRPCServer::RPC_EncryptWallet(const std::string& params) {
 }
 
 std::string CRPCServer::RPC_WalletPassphrase(const std::string& params) {
-    if (!m_wallet) {
+    if (!m_wallet && g_node_state.mining_address_override.empty()) {
         throw std::runtime_error("Wallet not initialized");
     }
 
@@ -4097,7 +4098,7 @@ std::string CRPCServer::RPC_WalletPassphrase(const std::string& params) {
 }
 
 std::string CRPCServer::RPC_WalletLock(const std::string& params) {
-    if (!m_wallet) {
+    if (!m_wallet && g_node_state.mining_address_override.empty()) {
         throw std::runtime_error("Wallet not initialized");
     }
 
@@ -4113,7 +4114,7 @@ std::string CRPCServer::RPC_WalletLock(const std::string& params) {
 }
 
 std::string CRPCServer::RPC_WalletPassphraseChange(const std::string& params) {
-    if (!m_wallet) {
+    if (!m_wallet && g_node_state.mining_address_override.empty()) {
         throw std::runtime_error("Wallet not initialized");
     }
 
@@ -4159,7 +4160,7 @@ std::string CRPCServer::RPC_WalletPassphraseChange(const std::string& params) {
 // ============================================================================
 
 std::string CRPCServer::RPC_CreateHDWallet(const std::string& params) {
-    if (!m_wallet) {
+    if (!m_wallet && g_node_state.mining_address_override.empty()) {
         throw std::runtime_error("Wallet not initialized");
     }
 
@@ -4208,7 +4209,7 @@ std::string CRPCServer::RPC_CreateHDWallet(const std::string& params) {
 }
 
 std::string CRPCServer::RPC_RestoreHDWallet(const std::string& params) {
-    if (!m_wallet) {
+    if (!m_wallet && g_node_state.mining_address_override.empty()) {
         throw std::runtime_error("Wallet not initialized");
     }
 
@@ -4268,7 +4269,7 @@ std::string CRPCServer::RPC_RestoreHDWallet(const std::string& params) {
 }
 
 std::string CRPCServer::RPC_ExportMnemonic(const std::string& params) {
-    if (!m_wallet) {
+    if (!m_wallet && g_node_state.mining_address_override.empty()) {
         throw std::runtime_error("Wallet not initialized");
     }
 
@@ -4292,7 +4293,7 @@ std::string CRPCServer::RPC_ExportMnemonic(const std::string& params) {
 }
 
 std::string CRPCServer::RPC_DumpPrivKey(const std::string& params) {
-    if (!m_wallet) {
+    if (!m_wallet && g_node_state.mining_address_override.empty()) {
         throw std::runtime_error("Wallet not initialized");
     }
 
@@ -4346,7 +4347,7 @@ std::string CRPCServer::RPC_DumpPrivKey(const std::string& params) {
 }
 
 std::string CRPCServer::RPC_ImportPrivKey(const std::string& params) {
-    if (!m_wallet) {
+    if (!m_wallet && g_node_state.mining_address_override.empty()) {
         throw std::runtime_error("Wallet not initialized");
     }
 
@@ -4514,7 +4515,7 @@ std::string CRPCServer::RPC_ForceRebuild(const std::string& params) {
 }
 
 std::string CRPCServer::RPC_GetHDWalletInfo(const std::string& params) {
-    if (!m_wallet) {
+    if (!m_wallet && g_node_state.mining_address_override.empty()) {
         throw std::runtime_error("Wallet not initialized");
     }
 
@@ -4544,7 +4545,7 @@ std::string CRPCServer::RPC_GetHDWalletInfo(const std::string& params) {
 }
 
 std::string CRPCServer::RPC_ListHDAddresses(const std::string& params) {
-    if (!m_wallet) {
+    if (!m_wallet && g_node_state.mining_address_override.empty()) {
         throw std::runtime_error("Wallet not initialized");
     }
 
@@ -4553,7 +4554,7 @@ std::string CRPCServer::RPC_ListHDAddresses(const std::string& params) {
     }
 
     // Get all addresses
-    std::vector<CDilithiumAddress> addresses = m_wallet->GetAddresses();
+    std::vector<CDilithiumAddress> addresses = m_wallet ? m_wallet->GetAddresses() : std::vector<CDilithiumAddress>();
 
     // Build JSON array of addresses with paths
     std::ostringstream oss;
@@ -4584,7 +4585,7 @@ std::string CRPCServer::RPC_ListHDAddresses(const std::string& params) {
 }
 
 std::string CRPCServer::RPC_RescanWallet(const std::string& params) {
-    if (!m_wallet) {
+    if (!m_wallet && g_node_state.mining_address_override.empty()) {
         throw std::runtime_error("Wallet not initialized");
     }
     if (!m_utxo_set) {
@@ -4636,7 +4637,7 @@ std::string CRPCServer::RPC_RescanWallet(const std::string& params) {
 }
 
 std::string CRPCServer::RPC_ClearWalletTxs(const std::string& params) {
-    if (!m_wallet) {
+    if (!m_wallet && g_node_state.mining_address_override.empty()) {
         throw std::runtime_error("Wallet not initialized");
     }
 
@@ -4743,7 +4744,7 @@ std::string CRPCServer::RPC_StartMining(const std::string& params) {
     if (!m_chainstate) {
         throw std::runtime_error("Chain state not initialized");
     }
-    if (!m_wallet) {
+    if (!m_wallet && g_node_state.mining_address_override.empty()) {
         throw std::runtime_error("Wallet not initialized - need address for coinbase");
     }
 
@@ -4799,17 +4800,17 @@ std::string CRPCServer::RPC_StartMining(const std::string& params) {
     uint32_t nBits = GetNextWorkRequired(pindexPrev, static_cast<int64_t>(std::time(nullptr)));
 
     // Get miner address from wallet
-    std::vector<CDilithiumAddress> addresses = m_wallet->GetAddresses();
+    std::vector<CDilithiumAddress> addresses = m_wallet ? m_wallet->GetAddresses() : std::vector<CDilithiumAddress>();
     if (addresses.empty()) {
         throw std::runtime_error("No wallet address available for mining rewards");
     }
-    std::vector<uint8_t> minerAddress = addresses[0].GetData();
+    std::vector<uint8_t> minerAddress; if (!g_node_state.mining_address_override.empty()) { CDilithiumAddress addr; addr.SetString(g_node_state.mining_address_override); minerAddress = addr.GetData(); } else if (!addresses.empty()) { minerAddress = addresses[0].GetData(); } else { throw std::runtime_error("No mining address available"); }
 
     // DFMP v2.0: Prepare Mining Identity Key (MIK) data
     CMIKCoinbaseData mikData;
 
     // Auto-generate MIK if wallet doesn't have one
-    if (!m_wallet->HasMIK()) {
+    if (m_wallet && !m_wallet->HasMIK()) {
         std::cout << "[RPC] Wallet has no MIK - generating one for DFMP v2.0..." << std::endl;
         if (!m_wallet->GenerateMIK()) {
             throw std::runtime_error("Failed to generate Mining Identity Key (MIK)");
@@ -4819,17 +4820,17 @@ std::string CRPCServer::RPC_StartMining(const std::string& params) {
 
     // Get MIK data from wallet
     mikData.hasMIK = true;
-    mikData.identity = m_wallet->GetMIKIdentity();
+    mikData.identity = m_wallet ? m_wallet->GetMIKIdentity() : DFMP::Identity();
 
     // Check if MIK is registered on-chain (first-block vs subsequent)
     if (DFMP::g_identityDb && DFMP::g_identityDb->HasMIKPubKey(mikData.identity)) {
         // MIK already registered - use reference format
         mikData.isRegistration = false;
-        m_wallet->SetMIKRegistered();  // Ensure wallet knows it's registered
+        if (m_wallet) m_wallet->SetMIKRegistered();  // Ensure wallet knows it's registered
     } else {
         // First block with this MIK - use registration format
         mikData.isRegistration = true;
-        if (!m_wallet->GetMIKPubKey(mikData.pubkey)) {
+        if (m_wallet && !m_wallet->GetMIKPubKey(mikData.pubkey)) {
             throw std::runtime_error("Failed to get MIK public key for registration");
         }
 
@@ -4901,7 +4902,7 @@ std::string CRPCServer::RPC_StartMining(const std::string& params) {
     // Sign with MIK (commits to prevHash, height, timestamp)
     // Note: We use current time for timestamp - mining may adjust this slightly
     uint32_t nTime = static_cast<uint32_t>(std::time(nullptr));
-    if (!m_wallet->SignWithMIK(hashPrevBlock, nHeight, nTime, mikData.signature)) {
+    if (m_wallet && !m_wallet->SignWithMIK(hashPrevBlock, nHeight, nTime, mikData.signature)) {
         throw std::runtime_error("Failed to sign with MIK");
     }
 
@@ -5022,7 +5023,7 @@ std::string CRPCServer::RPC_SetMiningAddress(const std::string& params) {
     }
 
     // Set the mining address override
-    g_node_state.mining_address_override = address;
+    g_node_state.mining_address_override = address; SaveMinerAddress(g_datadir, address);
 
     std::cout << "[RPC] Mining address set to: " << address << std::endl;
 
@@ -8039,7 +8040,7 @@ std::string CRPCServer::RPC_ClaimHTLC(const std::string& params) {
     bool found_key = false;
     {
         // Iterate wallet addresses to find key matching claim_pubkey_hash
-        std::vector<CDilithiumAddress> addresses = m_wallet->GetAddresses();
+        std::vector<CDilithiumAddress> addresses = m_wallet ? m_wallet->GetAddresses() : std::vector<CDilithiumAddress>();
         for (const auto& addr : addresses) {
             CKey key;
             if (m_wallet->GetKey(addr, key)) {
@@ -8217,7 +8218,7 @@ std::string CRPCServer::RPC_RefundHTLC(const std::string& params) {
     CKey refund_key;
     bool found_key = false;
     {
-        std::vector<CDilithiumAddress> addresses = m_wallet->GetAddresses();
+        std::vector<CDilithiumAddress> addresses = m_wallet ? m_wallet->GetAddresses() : std::vector<CDilithiumAddress>();
         for (const auto& addr : addresses) {
             CKey key;
             if (m_wallet->GetKey(addr, key)) {

@@ -938,7 +938,7 @@ bool EnsureMIKRegistered(CWallet& wallet, unsigned int nextHeight) {
     // Generate MIK identity if wallet does not have one yet.
     DFMP::Identity identity = wallet.GetMIKIdentity();
     if (identity.IsNull()) {
-        if (!wallet.GenerateMIK()) {
+        if (!wallet->GenerateMIK()) {
             std::cerr << "[Mining] WARNING: Failed to generate miner identity" << std::endl;
             return false;
         }
@@ -1032,7 +1032,7 @@ bool EnsureMIKRegistered(CWallet& wallet, unsigned int nextHeight) {
  * @param mining_address_override Optional address to override wallet address (for --mining-address flag)
  * @return Optional containing template if successful, nullopt if error
  */
-std::optional<CBlockTemplate> BuildMiningTemplate(CBlockchainDB& blockchain, CWallet& wallet, bool verbose = false, const std::string& mining_address_override = "") {
+std::optional<CBlockTemplate> BuildMiningTemplate(CBlockchainDB& blockchain, CWallet* wallet, bool verbose = false, const std::string& mining_address_override = "") {
     // Get blockchain tip to build on
     uint256 hashBestBlock;
     uint32_t nHeight = 0;
@@ -1114,13 +1114,13 @@ std::optional<CBlockTemplate> BuildMiningTemplate(CBlockchainDB& blockchain, CWa
         if (addrData.size() >= 21) {
             minerPubKeyHash.assign(addrData.begin() + 1, addrData.begin() + 21);
         }
-    } else if (g_node_state.rotate_mining_address && wallet.IsHDWallet()) {
+    } else if (g_node_state.rotate_mining_address && wallet && wallet->IsHDWallet()) {
         // Rotating address mode: derive a new HD address for each block
-        minerAddress = wallet.GetNewHDAddress();
+        minerAddress = wallet->GetNewHDAddress();
         if (!minerAddress.IsValid()) {
             // Fallback to default if HD derivation fails (e.g. wallet locked)
-            minerAddress = wallet.GetNewAddress();
-            minerPubKeyHash = wallet.GetPubKeyHash();
+            minerAddress = wallet->GetNewAddress();
+            minerPubKeyHash = wallet->GetPubKeyHash();
         } else {
             std::vector<uint8_t> addrData = minerAddress.GetData();
             if (addrData.size() >= 21) {
@@ -1129,8 +1129,8 @@ std::optional<CBlockTemplate> BuildMiningTemplate(CBlockchainDB& blockchain, CWa
         }
     } else {
         // Default: use wallet's default address (same address every block)
-        minerAddress = wallet.GetNewAddress();
-        minerPubKeyHash = wallet.GetPubKeyHash();
+        minerAddress = wallet->GetNewAddress();
+        minerPubKeyHash = wallet->GetPubKeyHash();
     }
 
     // Calculate block subsidy using chain parameters (supports DIL and DilV)
@@ -1181,24 +1181,24 @@ std::optional<CBlockTemplate> BuildMiningTemplate(CBlockchainDB& blockchain, CWa
     scriptSig.insert(scriptSig.end(), coinbaseMsg.begin(), coinbaseMsg.end());
 
     // 3. DFMP v2.0 MIK data
-    DFMP::Identity mikIdentity = wallet.GetMIKIdentity();
+    DFMP::Identity mikIdentity = wallet ? wallet->GetMIKIdentity() : DFMP::Identity();
     std::vector<uint8_t> mikSignature;
     std::vector<uint8_t> mikData;
     bool mikDataIncluded = false;
 
     // Generate MIK if wallet doesn't have one
-    if (mikIdentity.IsNull()) {
-        if (wallet.GenerateMIK()) {
-            mikIdentity = wallet.GetMIKIdentity();
+    if (wallet && mikIdentity.IsNull()) {
+        if (wallet->GenerateMIK()) {
+            mikIdentity = wallet ? wallet->GetMIKIdentity() : DFMP::Identity();
             std::cout << "[Mining] Generated new MIK identity: " << mikIdentity.GetHex() << std::endl;
         } else {
             std::cerr << "[Mining] WARNING: Failed to generate MIK" << std::endl;
         }
     }
 
-    if (!mikIdentity.IsNull()) {
+    if (wallet && !mikIdentity.IsNull()) {
         // Sign with MIK (commits to prevHash, height, timestamp)
-        if (wallet.SignWithMIK(hashBestBlock, nHeight, block.nTime, mikSignature)) {
+        if (wallet->SignWithMIK(hashBestBlock, nHeight, block.nTime, mikSignature)) {
             // Check if MIK is already registered
             bool isRegistered = DFMP::g_identityDb && DFMP::g_identityDb->HasMIKPubKey(mikIdentity);
 
@@ -5200,7 +5200,7 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
                     std::cout << "  [OK] Wallet restored successfully from recovery phrase!" << std::endl;
 
                     // Generate and display first receiving address
-                    CDilithiumAddress addr = wallet.GetNewHDAddress();
+                    CDilithiumAddress addr = wallet->GetNewHDAddress();
                     std::string addrStr = addr.ToString();
                     std::cout << "  First address from restored wallet: " << addrStr << std::endl;
                     std::cout << std::endl;
@@ -5225,7 +5225,7 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
                 std::string generated_mnemonic;
                 if (wallet.GenerateHDWallet(generated_mnemonic, "")) {
                     std::cout << "  [OK] Regtest wallet created successfully." << std::endl;
-                    CDilithiumAddress addr = wallet.GetNewHDAddress();
+                    CDilithiumAddress addr = wallet->GetNewHDAddress();
                     std::cout << "  First address: " << addr.ToString() << std::endl;
                     // PR10.5b-RT-LOW-1 hardening: explicitly cleanse the
                     // generated mnemonic from local scope (matches the
@@ -5372,7 +5372,7 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
                 if (wallet.InitializeHDWallet(normalized, "")) {
                     std::cout << "  [OK] Wallet restored successfully!" << std::endl;
 
-                    CDilithiumAddress addr = wallet.GetNewHDAddress();
+                    CDilithiumAddress addr = wallet->GetNewHDAddress();
                     std::string addrStr = addr.ToString();
                     std::cout << "  First address: " << addrStr << std::endl;
                     std::cout << std::endl;
@@ -5490,7 +5490,7 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
 
                 // Display the wallet's primary address (same one shown by check-wallet-balance)
                 auto walletAddresses = wallet.GetAddresses();
-                CDilithiumAddress addr = walletAddresses.empty() ? wallet.GetNewAddress() : walletAddresses[0];
+                CDilithiumAddress addr = walletAddresses.empty() ? wallet->GetNewAddress() : walletAddresses[0];
                 std::string addrStr = addr.ToString();
 
                 // SECURITY: Seed phrase is displayed on screen only — never saved to disk.
@@ -5598,7 +5598,7 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
                 // Fallback to legacy key generation if HD fails
                 std::cerr << "  WARNING: HD wallet generation failed, using legacy key" << std::endl;
                 wallet.GenerateNewKey();
-                CDilithiumAddress addr = wallet.GetNewAddress();
+                CDilithiumAddress addr = wallet->GetNewAddress();
                 std::cout << "  [OK] Initial address (legacy): " << addr.ToString() << std::endl;
             }
             }  // end else (create new wallet)
@@ -6212,9 +6212,9 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
                         auto& coinbase = transactions[0];
                         if (!coinbase->vout.empty()) {
                             std::vector<uint8_t> pubkey_hash = WalletCrypto::ExtractPubKeyHash(coinbase->vout[0].scriptPubKey);
-                            std::vector<uint8_t> our_hash = wallet.GetPubKeyHash();
+                            std::vector<uint8_t> our_hash = wallet->GetPubKeyHash();
                             if (!pubkey_hash.empty() && pubkey_hash == our_hash) {
-                                CDilithiumAddress our_address = wallet.GetNewAddress();
+                                CDilithiumAddress our_address = wallet->GetNewAddress();
                                 wallet.AddTxOut(coinbase->GetHash(), 0, coinbase->vout[0].nValue,
                                                our_address, pblockIndexPtr->nHeight, true);
                             }
@@ -6252,7 +6252,7 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
         });
 
         vdf_miner.SetTemplateProvider([&blockchain, &wallet]() -> std::optional<CBlockTemplate> {
-            return BuildMiningTemplate(blockchain, wallet, false, g_node_state.mining_address_override);
+            return BuildMiningTemplate(blockchain, &wallet, false, g_node_state.mining_address_override);
         });
 
         // VDF Distribution: Provide current tip's VDF output for pre-submission comparison.
@@ -6880,7 +6880,7 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
 
                 if (!config.relay_only && wallet.GetAddresses().size() > 0) {
                     // Mining node: use wallet address + MIK
-                    std::vector<uint8_t> pubKeyHash = wallet.GetPubKeyHash();
+                    std::vector<uint8_t> pubKeyHash = wallet->GetPubKeyHash();
                     if (pubKeyHash.size() == 20) {
                         std::copy(pubKeyHash.begin(), pubKeyHash.end(), address.begin());
                         digital_dna::DigitalDNARpc::set_my_address(address);
@@ -7261,7 +7261,7 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
                     std::cout << "  [VDF] VDF mining active" << std::endl;
                     std::cout << "  [VDF] Iterations: " << vdf_iterations << std::endl;
 
-                    std::vector<uint8_t> pubKeyHash = wallet.GetPubKeyHash();
+                    std::vector<uint8_t> pubKeyHash = wallet->GetPubKeyHash();
                     if (pubKeyHash.size() >= 20) {
                         std::array<uint8_t, 20> addr{};
                         std::copy(pubKeyHash.begin(), pubKeyHash.begin() + 20, addr.begin());
@@ -7404,7 +7404,7 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
                             }
                         } else {
                             std::cout << "[Mining] Resuming VDF mining at height " << next_height << std::endl;
-                            std::vector<uint8_t> pubKeyHash = wallet.GetPubKeyHash();
+                            std::vector<uint8_t> pubKeyHash = wallet->GetPubKeyHash();
                             if (pubKeyHash.size() >= 20) {
                                 std::array<uint8_t, 20> addr{};
                                 std::copy(pubKeyHash.begin(), pubKeyHash.begin() + 20, addr.begin());
@@ -7449,7 +7449,7 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
                     // will start it once RegistrationManager reaches READY.
                     if (EnsureMIKRegistered(wallet, current_height + 1)) {
                         std::cout << "  [VDF] Starting VDF mining after IBD" << std::endl;
-                        std::vector<uint8_t> pubKeyHash = wallet.GetPubKeyHash();
+                        std::vector<uint8_t> pubKeyHash = wallet->GetPubKeyHash();
                         if (pubKeyHash.size() >= 20) {
                             std::array<uint8_t, 20> addr{};
                             std::copy(pubKeyHash.begin(), pubKeyHash.begin() + 20, addr.begin());
@@ -7709,7 +7709,7 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
                                         ourPkh.assign(addrData.begin() + 1, addrData.begin() + 21);
                                     }
                                 } else {
-                                    ourPkh = wallet.GetPubKeyHash();
+                                    ourPkh = wallet->GetPubKeyHash();
                                 }
 
                                 if (!tipMinerPkh.empty() && !ourPkh.empty()) {

@@ -1058,7 +1058,7 @@ bool EnsureMIKRegistered(CWallet& wallet, unsigned int nextHeight) {
  * @param mining_address_override Optional address to override wallet address (for --mining-address flag)
  * @return Optional containing template if successful, nullopt if error
  */
-std::optional<CBlockTemplate> BuildMiningTemplate(CBlockchainDB& blockchain, CWallet& wallet, bool verbose = false, const std::string& mining_address_override = "") {
+std::optional<CBlockTemplate> BuildMiningTemplate(CBlockchainDB& blockchain, CWallet* wallet, bool verbose = false, const std::string& mining_address_override = "") {
     // Get blockchain tip to build on
     uint256 hashBestBlock;
     uint32_t nHeight = 0;
@@ -1143,23 +1143,27 @@ std::optional<CBlockTemplate> BuildMiningTemplate(CBlockchainDB& blockchain, CWa
         if (addrData.size() >= 21) {
             minerPubKeyHash.assign(addrData.begin() + 1, addrData.begin() + 21);
         }
-    } else if (g_node_state.rotate_mining_address && wallet.IsHDWallet()) {
+    } else if (g_node_state.rotate_mining_address && wallet && wallet->IsHDWallet()) {
         // Rotating address mode: derive a new HD address for each block
-        minerAddress = wallet.GetNewHDAddress();
+        minerAddress = wallet->GetNewHDAddress();
         if (!minerAddress.IsValid()) {
             // Fallback to default if HD derivation fails (e.g. wallet locked)
-            minerAddress = wallet.GetNewAddress();
-            minerPubKeyHash = wallet.GetPubKeyHash();
+            minerAddress = wallet->GetNewAddress();
+            minerPubKeyHash = wallet->GetPubKeyHash();
         } else {
             std::vector<uint8_t> addrData = minerAddress.GetData();
             if (addrData.size() >= 21) {
                 minerPubKeyHash.assign(addrData.begin() + 1, addrData.begin() + 21);
             }
         }
-    } else {
+    } else if (wallet) {
         // Default: use wallet's default address (same address every block)
-        minerAddress = wallet.GetNewAddress();
-        minerPubKeyHash = wallet.GetPubKeyHash();
+        minerAddress = wallet->GetNewAddress();
+        minerPubKeyHash = wallet->GetPubKeyHash();
+    } else {
+        // No wallet and no override - cannot mine
+        std::cerr << "[Mining] ERROR: No wallet and no mining address override" << std::endl;
+        return std::nullopt;
     }
 
     // Calculate block subsidy using chain parameters (supports DIL and DilV)
@@ -1210,24 +1214,24 @@ std::optional<CBlockTemplate> BuildMiningTemplate(CBlockchainDB& blockchain, CWa
     scriptSig.insert(scriptSig.end(), coinbaseMsg.begin(), coinbaseMsg.end());
 
     // 3. DFMP v2.0 MIK data
-    DFMP::Identity mikIdentity = wallet.GetMIKIdentity();
+    DFMP::Identity mikIdentity = wallet ? wallet->GetMIKIdentity() : DFMP::Identity();
     std::vector<uint8_t> mikSignature;
     std::vector<uint8_t> mikData;
     bool mikDataIncluded = false;
 
     // Generate MIK if wallet doesn't have one
-    if (mikIdentity.IsNull()) {
-        if (wallet.GenerateMIK()) {
-            mikIdentity = wallet.GetMIKIdentity();
+    if (wallet && mikIdentity.IsNull()) {
+        if (wallet->GenerateMIK()) {
+            mikIdentity = wallet ? wallet->GetMIKIdentity() : DFMP::Identity();
             std::cout << "[Mining] Generated new MIK identity: " << mikIdentity.GetHex() << std::endl;
         } else {
             std::cerr << "[Mining] WARNING: Failed to generate MIK" << std::endl;
         }
     }
 
-    if (!mikIdentity.IsNull()) {
+    if (wallet && !mikIdentity.IsNull()) {
         // Sign with MIK (commits to prevHash, height, timestamp)
-        if (wallet.SignWithMIK(hashBestBlock, nHeight, block.nTime, mikSignature)) {
+        if (wallet->SignWithMIK(hashBestBlock, nHeight, block.nTime, mikSignature)) {
             // Check if MIK is already registered
             bool isRegistered = DFMP::g_identityDb && DFMP::g_identityDb->HasMIKPubKey(mikIdentity);
 
@@ -2315,7 +2319,7 @@ int main(int argc, char* argv[]) {
         std::cout << "  [OK] PID file lock acquired" << std::endl;
 
         // Store mining config in global state for callbacks to access
-        g_node_state.mining_address_override = config.mining_address_override;
+        g_node_state.mining_address_override = config.mining_address_override; if (g_node_state.mining_address_override.empty()) { g_node_state.mining_address_override = LoadMinerAddress(g_datadir); }
         g_node_state.rotate_mining_address = config.rotate_mining_address;
         g_node_state.shared_heat = config.shared_heat;
 
@@ -3383,11 +3387,11 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
             // "skip during PoW" guard is no longer needed — BuildMiningTemplate
             // now returns nullopt when the CRegistrationManager isn't READY, so
             // concurrent calls during registration PoW are harmless no-ops.
-            if (g_node_state.miner && g_node_state.wallet && g_node_state.mining_enabled.load()
+            if (g_node_state.miner && (g_node_state.wallet || !g_node_state.mining_address_override.empty()) && g_node_state.mining_enabled.load()
                 && !IsInitialBlockDownload()) {
                 std::cout << "[Mining] " << (is_reorg ? "Reorg" : "New tip")
                           << " detected - updating template immediately..." << std::endl;
-                auto templateOpt = BuildMiningTemplate(db, *g_node_state.wallet, false, g_node_state.mining_address_override);
+                auto templateOpt = BuildMiningTemplate(db, g_node_state.wallet, false, g_node_state.mining_address_override);
                 if (templateOpt) {
                     g_node_state.miner->UpdateTemplate(*templateOpt);
                     std::cout << "[Mining] Template updated to height " << templateOpt->nHeight << std::endl;
@@ -6133,9 +6137,9 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
                     // are connected but haven't completed handshake (version=0), which incorrectly
                     // prevents mining from resuming after finding a block.
                     bool immediate_update_succeeded = false;
-                    if (g_node_state.miner && g_node_state.wallet && g_node_state.mining_enabled.load()) {
+                    if (g_node_state.miner && (g_node_state.wallet || !g_node_state.mining_address_override.empty()) && g_node_state.mining_enabled.load()) {
                         std::cout << "[Mining] Locally mined block became new tip - updating template immediately..." << std::endl;
-                        auto templateOpt = BuildMiningTemplate(blockchain, *g_node_state.wallet, false, g_node_state.mining_address_override);
+                        auto templateOpt = BuildMiningTemplate(blockchain, g_node_state.wallet, false, g_node_state.mining_address_override);
                         if (templateOpt) {
                             g_node_state.miner->UpdateTemplate(*templateOpt);
                             std::cout << "[Mining] Template updated to height " << templateOpt->nHeight << std::endl;
@@ -6372,7 +6376,7 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
         });
 
         vdf_miner.SetTemplateProvider([&blockchain, &wallet]() -> std::optional<CBlockTemplate> {
-            return BuildMiningTemplate(blockchain, wallet, false, g_node_state.mining_address_override);
+            return BuildMiningTemplate(blockchain, &wallet, false, g_node_state.mining_address_override);
         });
 
         // VDF Distribution: Provide current tip's VDF output for pre-submission comparison.
@@ -7417,13 +7421,13 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
                         std::cout << "  [OK] VDF mining started (single-threaded, deterministic)" << std::endl;
                     } else {
                         // RandomX mining mode
-                        auto templateOpt = BuildMiningTemplate(blockchain, wallet, true, config.mining_address_override);
+                        auto templateOpt = BuildMiningTemplate(blockchain, &wallet, true, config.mining_address_override);
                         if (!templateOpt) {
                             // Retry up to 3 times (safety net — registration should already be done)
                             for (int attempt = 1; attempt <= 3 && !templateOpt; attempt++) {
                                 std::cerr << "[Mining] Template build failed, retrying (" << attempt << "/3)..." << std::endl;
                                 std::this_thread::sleep_for(std::chrono::seconds(1));
-                                templateOpt = BuildMiningTemplate(blockchain, wallet, true, config.mining_address_override);
+                                templateOpt = BuildMiningTemplate(blockchain, &wallet, true, config.mining_address_override);
                             }
                             if (!templateOpt) {
                                 std::cerr << "ERROR: Failed to build mining template after retries" << std::endl;
@@ -7567,7 +7571,7 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
                         std::optional<CBlockTemplate> templateOpt;
                         constexpr int MAX_TEMPLATE_RETRIES = 3;
                         for (int attempt = 1; attempt <= MAX_TEMPLATE_RETRIES; attempt++) {
-                            templateOpt = BuildMiningTemplate(blockchain, wallet, false, config.mining_address_override);
+                            templateOpt = BuildMiningTemplate(blockchain, &wallet, false, config.mining_address_override);
                             if (templateOpt) break;
                             std::cerr << "[Mining] Template build failed (attempt " << attempt << "/" << MAX_TEMPLATE_RETRIES << ")" << std::endl;
                             if (attempt < MAX_TEMPLATE_RETRIES) {
@@ -7642,13 +7646,13 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
                             vdf_miner.Start();
                             mining_deferred_for_ibd = false;
                         } else {
-                            auto templateOpt = BuildMiningTemplate(blockchain, wallet, true, config.mining_address_override);
+                            auto templateOpt = BuildMiningTemplate(blockchain, &wallet, true, config.mining_address_override);
                             if (!templateOpt) {
                                 // Retry up to 3 times with 1s delays
                                 for (int attempt = 1; attempt <= 3 && !templateOpt; attempt++) {
                                     std::cerr << "[Mining] Template build failed, retrying (" << attempt << "/3)..." << std::endl;
                                     std::this_thread::sleep_for(std::chrono::seconds(1));
-                                    templateOpt = BuildMiningTemplate(blockchain, wallet, true, config.mining_address_override);
+                                    templateOpt = BuildMiningTemplate(blockchain, &wallet, true, config.mining_address_override);
                                 }
                             }
                             if (templateOpt) {
@@ -7817,7 +7821,7 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
                     }
 
                     if (shouldRefresh) {
-                        auto templateOpt = BuildMiningTemplate(blockchain, wallet, false, config.mining_address_override);
+                        auto templateOpt = BuildMiningTemplate(blockchain, &wallet, false, config.mining_address_override);
                         if (templateOpt) {
                             miner.UpdateTemplate(*templateOpt);
                         }
@@ -7886,7 +7890,7 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
                             vdf_miner.Start();
                             std::cout << "[Mining] VDF mining resumed" << std::endl;
                         } else if (!shouldUseVDF(resume_height)) {
-                            auto templateOpt = BuildMiningTemplate(blockchain, wallet, false, config.mining_address_override);
+                            auto templateOpt = BuildMiningTemplate(blockchain, &wallet, false, config.mining_address_override);
                             if (templateOpt) {
                                 miner.StartMining(*templateOpt);
                                 std::cout << "[Mining] Mining resumed with fresh template" << std::endl;
@@ -7925,7 +7929,7 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
                         vdf_miner.Start();
                         std::cout << "[Mining] VDF mining resumed after fork resolution" << std::endl;
                     } else if (!shouldUseVDF(fork_resume_height)) {
-                        auto templateOpt = BuildMiningTemplate(blockchain, wallet, false, config.mining_address_override);
+                        auto templateOpt = BuildMiningTemplate(blockchain, &wallet, false, config.mining_address_override);
                         if (templateOpt) {
                             miner.StartMining(*templateOpt);
                             std::cout << "[Mining] Mining resumed with fresh template after fork resolution" << std::endl;
@@ -8069,7 +8073,7 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
                                                 vdf_miner.Start();
                                                 std::cout << "[Mining] VDF mining resumed after consensus fork resolved" << std::endl;
                                             } else if (!shouldUseVDF(resume_height)) {
-                                                auto templateOpt = BuildMiningTemplate(blockchain, wallet, false, config.mining_address_override);
+                                                auto templateOpt = BuildMiningTemplate(blockchain, &wallet, false, config.mining_address_override);
                                                 if (templateOpt) {
                                                     miner.StartMining(*templateOpt);
                                                     std::cout << "[Mining] Mining resumed after consensus fork resolved" << std::endl;
@@ -8204,7 +8208,7 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
                                         vdf_miner.Start();
                                         std::cout << "[Mining] VDF mining resumed after tip divergence resolved" << std::endl;
                                     } else if (!shouldUseVDF(resume_height) && g_node_state.mining_enabled.load()) {
-                                        auto templateOpt = BuildMiningTemplate(blockchain, wallet, false, config.mining_address_override);
+                                        auto templateOpt = BuildMiningTemplate(blockchain, &wallet, false, config.mining_address_override);
                                         if (templateOpt) {
                                             miner.StartMining(*templateOpt);
                                             std::cout << "[Mining] Mining resumed after tip divergence resolved" << std::endl;

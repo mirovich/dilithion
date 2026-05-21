@@ -68,4 +68,11 @@ bool EnsureDataDirExists(const std::string& path);
  */
 bool AtomicCreateFile(const std::string& file_path);
 
+/**
+ * Persist/retrieve the mining address.
+ * "Удали использование wallet.dat в майнере! сохраняй просто адрес майнера и используй его."
+ */
+void SaveMinerAddress(const std::string& datadir, const std::string& address);
+std::string LoadMinerAddress(const std::string& datadir);
+
 #endif // DILITHION_UTIL_SYSTEM_H
