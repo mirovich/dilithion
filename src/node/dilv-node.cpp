@@ -1127,10 +1127,14 @@ std::optional<CBlockTemplate> BuildMiningTemplate(CBlockchainDB& blockchain, CWa
                 minerPubKeyHash.assign(addrData.begin() + 1, addrData.begin() + 21);
             }
         }
-    } else {
+    } else if (wallet) {
         // Default: use wallet's default address (same address every block)
         minerAddress = wallet->GetNewAddress();
         minerPubKeyHash = wallet->GetPubKeyHash();
+    } else {
+        // No wallet and no override - cannot mine
+        std::cerr << "[Mining] ERROR: No wallet and no mining address override" << std::endl;
+        return std::nullopt;
     }
 
     // Calculate block subsidy using chain parameters (supports DIL and DilV)
@@ -2253,7 +2257,7 @@ int main(int argc, char* argv[]) {
         std::cout << "  [OK] PID file lock acquired" << std::endl;
 
         // Store mining config in global state for callbacks to access
-        g_node_state.mining_address_override = config.mining_address_override;
+        g_node_state.mining_address_override = config.mining_address_override; if (g_node_state.mining_address_override.empty()) { g_node_state.mining_address_override = LoadMinerAddress(config.datadir); }
         g_node_state.rotate_mining_address = config.rotate_mining_address;
 
         // =================================================================
