@@ -489,7 +489,7 @@ dilv-genesis-vdf: $(CORE_OBJECTS) $(OBJ_DIR)/tools/dilv_genesis_vdf.o $(DILITHIU
 # Test Binaries
 # ============================================================================
 
-tests: phase1_test miner_tests wallet_tests rpc_tests rpc_auth_tests timestamp_tests crypter_tests wallet_encryption_integration_tests wallet_persistence_tests integration_tests net_tests connman_tests tx_validation_tests tx_relay_tests mining_integration_tests bug_003_block_size_tests dfmp_mik_tests mik_registration_persistence_tests dna_propagation_tests test_passphrase_validator script_tests addrman_v2_tests peer_scorer_tests peer_scorer_banman_integration_tests header_proof_checker_tests chain_selector_tests getchaintips_equivalence_tests chain_case_2_5_equivalence_tests chain_work_smoke_tests reorg_wal_crash_injection_tests competing_sibling_below_checkpoint_tests headers_manager_to_chain_selector_wiring_tests fast_path_2_boundary_tests v4_1_checkpoint_enforcement_tests v4_1_chain_selector_suppression_tests auto_rebuild_marker_mode_symmetry_tests add_block_index_flag_merge_tests port_chain_selector_invariants_tests legacy_vs_port_differential_tests chainstate_integrity_tests
+tests: phase1_test miner_tests wallet_tests rpc_tests rpc_auth_tests ratelimiter_tests timestamp_tests crypter_tests wallet_encryption_integration_tests wallet_persistence_tests integration_tests net_tests connman_tests tx_validation_tests tx_relay_tests mining_integration_tests bug_003_block_size_tests dfmp_mik_tests mik_registration_persistence_tests dna_propagation_tests test_passphrase_validator script_tests addrman_v2_tests peer_scorer_tests peer_scorer_banman_integration_tests header_proof_checker_tests chain_selector_tests getchaintips_equivalence_tests chain_case_2_5_equivalence_tests chain_work_smoke_tests reorg_wal_crash_injection_tests competing_sibling_below_checkpoint_tests headers_manager_to_chain_selector_wiring_tests fast_path_2_boundary_tests v4_1_checkpoint_enforcement_tests v4_1_chain_selector_suppression_tests auto_rebuild_marker_mode_symmetry_tests add_block_index_flag_merge_tests port_chain_selector_invariants_tests legacy_vs_port_differential_tests chainstate_integrity_tests
 	@echo "$(COLOR_GREEN)✓ All tests built successfully$(COLOR_RESET)"
 
 phase1_test: $(CORE_OBJECTS) $(OBJ_DIR)/test/phase1_simple_test.o $(DILITHIUM_OBJECTS) $(CHIAVDF_OBJECTS)
@@ -509,6 +509,10 @@ rpc_tests: $(CORE_OBJECTS) $(OBJ_DIR)/test/rpc_tests.o $(DILITHIUM_OBJECTS) $(CH
 	@$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
 
 rpc_auth_tests: $(CORE_OBJECTS) $(OBJ_DIR)/test/rpc_auth_tests.o $(DILITHIUM_OBJECTS) $(CHIAVDF_OBJECTS)
+	@echo "$(COLOR_BLUE)[LINK]$(COLOR_RESET) $@"
+	@$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
+
+ratelimiter_tests: $(CORE_OBJECTS) $(OBJ_DIR)/test/ratelimiter_tests.o $(DILITHIUM_OBJECTS) $(CHIAVDF_OBJECTS)
 	@echo "$(COLOR_BLUE)[LINK]$(COLOR_RESET) $@"
 	@$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
 
@@ -956,6 +960,9 @@ test: tests test_dilithion asert_test
 	@echo ""
 	@echo "$(COLOR_YELLOW)Running RPC authentication tests...$(COLOR_RESET)"
 	@./rpc_auth_tests
+	@echo ""
+	@echo "$(COLOR_YELLOW)Running rate limiter regression tests...$(COLOR_RESET)"
+	@./ratelimiter_tests
 	@echo ""
 	@echo "$(COLOR_YELLOW)Running timestamp validation tests...$(COLOR_RESET)"
 	@./timestamp_tests
