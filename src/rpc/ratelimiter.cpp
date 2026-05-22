@@ -93,9 +93,24 @@ const std::map<std::string, CRateLimiter::MethodRateLimit> CRateLimiter::METHOD_
     {"waitforblockheight",     {10.0, 0.167, 1.0}},
 };
 
+// Mainnet seed-mesh IPs exempt from per-IP rate limiting. Same trust model
+// as the 127.0.0.1 exemption — these hosts mutually trust each other for
+// status polling (Explorer-on-NYC fan-out to LDN/SGP/SYD; cross-seed health
+// checks). Listed inline rather than in chainparams to keep the exemption
+// surface tightly scoped and easy to audit. 2026-05-22.
+static bool IsSeedMeshIP(const std::string& ip) {
+    return ip == "138.197.68.128"   // NYC
+        || ip == "167.172.56.119"   // LDN
+        || ip == "165.22.103.114"   // SGP
+        || ip == "134.199.159.83";  // SYD
+}
+
 bool CRateLimiter::AllowRequest(const std::string& ipAddress) {
     // Exempt localhost from rate limiting (local services like block explorer)
     if (ipAddress == "127.0.0.1" || ipAddress == "::1") {
+        return true;
+    }
+    if (IsSeedMeshIP(ipAddress)) {
         return true;
     }
 
@@ -140,6 +155,9 @@ bool CRateLimiter::AllowRequest(const std::string& ipAddress) {
 bool CRateLimiter::AllowMethodRequest(const std::string& ipAddress, const std::string& method) {
     // Exempt localhost from rate limiting (local services like block explorer)
     if (ipAddress == "127.0.0.1" || ipAddress == "::1") {
+        return true;
+    }
+    if (IsSeedMeshIP(ipAddress)) {
         return true;
     }
 
