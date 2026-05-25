@@ -232,7 +232,8 @@ std::atomic<CTxRelayManager*> g_tx_relay_manager{nullptr};
 std::atomic<CTxMemPool*> g_mempool{nullptr};
 std::atomic<CTransactionValidator*> g_tx_validator{nullptr};
 std::atomic<CUTXOSet*> g_utxo_set{nullptr};
-std::atomic<unsigned int> g_chain_height{0};
+// Issue #83: g_chain_height removed — was only written at startup, causing
+// stale-height peer penalties post-IBD. Consumers now read g_chainstate.GetHeight().
 
 // Global pointers for P2P networking (NW-005)
 // Phase 5: Removed g_connection_manager - use CConnman via NodeContext instead
@@ -1384,7 +1385,16 @@ bool CNetMessageProcessor::ProcessTxMessage(int peer_id, CDataStream& stream) {
         auto* mempool = g_mempool.load();
         auto* tx_validator = g_tx_validator.load();
         auto* utxo_set = g_utxo_set.load();
-        unsigned int chain_height = g_chain_height.load();
+        // Issue #83: read live chain tip, not a stale startup-only global.
+        extern CChainState g_chainstate;
+        int chain_height_signed = g_chainstate.GetHeight();
+        if (chain_height_signed < 0) {
+            if (g_verbose.load(std::memory_order_relaxed))
+                std::cout << "[P2P] Dropping tx " << txid.GetHex().substr(0, 16)
+                          << "... from peer " << peer_id << ": no chain tip" << std::endl;
+            return true;  // No tip yet — not the peer's fault, don't penalise.
+        }
+        unsigned int chain_height = static_cast<unsigned int>(chain_height_signed);
 
         // Phase 5.3: Transaction relay processing
         if (tx_relay) {
