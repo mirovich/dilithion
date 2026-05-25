@@ -299,7 +299,7 @@ class CUTXOSet;
 extern std::atomic<CTxMemPool*> g_mempool;
 extern std::atomic<CTransactionValidator*> g_tx_validator;
 extern std::atomic<CUTXOSet*> g_utxo_set;
-extern std::atomic<unsigned int> g_chain_height;
+// Issue #83: g_chain_height removed — consumers read g_chainstate.GetHeight() (see consensus/chain.h).
 
 // Global P2P networking pointers (NW-005)
 // P0-5 FIX: Use std::atomic to prevent initialization race conditions

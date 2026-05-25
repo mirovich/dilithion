@@ -2895,7 +2895,7 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
                 // against tip's chainwork. Caused LDN tip-going-backwards /
                 // dual-hash deadlock 2026-05-04.
                 g_chainstate.RecomputeCandidates();
-                g_chain_height.store(static_cast<unsigned int>(pindexTip->nHeight));  // BUG #108 FIX: Set global height for TX validation
+                // Issue #83: g_chain_height.store removed — tx validation now reads g_chainstate.GetHeight() directly.
 
                 // BUG #270 FIX: Ensure all blocks on the active chain have BLOCK_VALID_CHAIN set.
                 // Bootstrap imports store blocks with only BLOCK_HAVE_DATA (status=8),

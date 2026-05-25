@@ -13,6 +13,7 @@
 #include <net/net.h>
 #include <net/connman.h>
 #include <net/protocol.h>
+#include <consensus/chain.h>  // Issue #83: g_chainstate.GetHeight() (replaces g_chain_height)
 #include <net/port/addrman_v2.h>             // Phase 1 port: CAddrMan_v2 (default)
 #include <net/port/legacy_addrman_adapter.h> // Phase 1 port: legacy fallback
 #include <net/port/peer_scorer.h>             // Phase 2 port: CPeerScorer
@@ -997,7 +998,10 @@ bool CPeerManager::EvictPeersIfNeeded() {
 
     // Phase 4: Trust-based eviction bonus (only when active and not during IBD)
     {
-        int current_height = static_cast<int>(g_chain_height.load());
+        // Issue #83: read live chain tip via canonical accessor (GetHeight() returns
+        // -1 if no tip — comparison below naturally yields trust_active=false).
+        extern CChainState g_chainstate;
+        int current_height = g_chainstate.GetHeight();
         bool trust_active = Dilithion::g_chainParams &&
                             current_height >= Dilithion::g_chainParams->trustWeightedNetworkHeight;
         bool in_ibd = g_node_context.sync_coordinator &&

@@ -501,7 +501,8 @@ extern CTxRelayManager* g_tx_relay_manager;
 extern CTxMemPool* g_mempool;
 extern CTransactionValidator* g_tx_validator;
 extern CUTXOSet* g_utxo_set;
-extern unsigned int g_chain_height;
+// Issue #83: g_chain_height removed — chain tip is read from g_chainstate.GetHeight()
+// (canonical accessor, updated atomically inside CChainState::SetTip under cs_main).
 ```
 
 #### Initialization
@@ -511,7 +512,7 @@ g_tx_relay_manager = new CTxRelayManager();
 g_mempool = &mempool;
 g_tx_validator = &validator;
 g_utxo_set = &utxo_set;
-g_chain_height = current_height;
+// No g_chain_height initialization — consumers read g_chainstate.GetHeight() live.
 ```
 
 #### Cleanup
