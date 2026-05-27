@@ -3820,105 +3820,23 @@
         // Show mnemonic recovery phrase
         async function showMnemonic() {
             const alertDiv = document.getElementById('backupAlert');
-            const password = document.getElementById('exportPassword').value;
             const isLightMode = connectionManager && connectionManager.getMode() === 'light';
 
-            // Light mode: mnemonic not stored after creation
+            // Mnemonic export via RPC removed for security reasons
             if (isLightMode) {
                 alertDiv.innerHTML = '<div class="alert" style="background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); color: var(--warning); line-height: 1.6;">' +
                     '<strong>Browser Wallet</strong><br>' +
                     'Your recovery phrase was shown when you created the wallet. It is not stored in the browser for security.<br><br>' +
-                    'If you lost it, you cannot recover it from here. If you have a node wallet with the same keys, you can export the mnemonic from your node using the <strong>Node Wallet</strong> at <a href="http://127.0.0.1:8332/" style="color:var(--warning);text-decoration:underline;">http://127.0.0.1:8332/</a>.<br><br>' +
-                    'To import a mnemonic into this browser wallet, use the <strong>Recover Wallet</strong> section below.</div>';
+                    'If you lost it, restore from your 24-word recovery phrase using the <strong>Recover Wallet</strong> section below.</div>';
                 return;
             }
 
-            // Show confirmation dialog first
-            const confirmed = confirm(
-                "WARNING: You are about to display your recovery phrase.\n\n" +
-                "Anyone who sees these 24 words can steal ALL your funds.\n\n" +
-                "Make sure:\n" +
-                "- No one is watching your screen\n" +
-                "- No screen recording is active\n" +
-                "- You are in a private location\n\n" +
-                "The phrase will auto-hide after 60 seconds.\n\n" +
-                "Do you want to continue?"
-            );
-
-            if (!confirmed) {
-                return;
-            }
-
-            try {
-                // First check if this is an HD wallet
-                const hdInfo = await rpcCall('gethdwalletinfo');
-                console.log('[Mnemonic] HD wallet info:', hdInfo);
-                if (!hdInfo || hdInfo.hdwallet === false) {
-                    throw new Error('This wallet was not created as an HD wallet. No recovery phrase is available. Your wallet uses randomly generated keys - make sure to keep a backup of your wallet.dat file instead.');
-                }
-
-                // Check wallet encryption status
-                const walletInfo = await rpcCall('getwalletinfo');
-                console.log('[Mnemonic] Wallet info:', walletInfo);
-                const isEncrypted = walletInfo && walletInfo.encrypted;
-
-                // If encrypted, always try to unlock with provided password
-                // (the wallet may report locked:false but still need re-unlocking)
-                if (isEncrypted) {
-                    if (!password) {
-                        throw new Error('Wallet is encrypted. Please enter your password to export the recovery phrase.');
-                    }
-                    // Try to unlock (or re-unlock to ensure fresh unlock state)
-                    try {
-                        await rpcCall('walletpassphrase', {passphrase: password, timeout: 60});
-                        console.log('[Mnemonic] Wallet unlocked successfully');
-                    } catch(e) {
-                        console.error('[Mnemonic] Wallet unlock failed:', e.message);
-                        // Check if it's a password error vs other error
-                        if (e.message.includes('passphrase') || e.message.includes('incorrect')) {
-                            throw new Error('Incorrect password. Please try again.');
-                        }
-                        // Otherwise continue - maybe wallet doesn't need unlocking
-                        console.log('[Mnemonic] Continuing despite unlock error');
-                    }
-                }
-
-                const result = await rpcCall('exportmnemonic');
-                console.log('[Mnemonic] Export result:', result ? 'success' : 'null');
-
-                if (result && result.mnemonic) {
-                    const words = result.mnemonic.split(' ');
-                    const wordsContainer = document.getElementById('mnemonicWords');
-                    wordsContainer.innerHTML = '';
-
-                    words.forEach((word, index) => {
-                        const wordDiv = document.createElement('div');
-                        wordDiv.style.cssText = 'background: var(--bg-darker); padding: 10px 12px; border-radius: 6px; border: 1px solid var(--border); font-family: "JetBrains Mono", monospace; font-size: 0.85rem;';
-                        wordDiv.innerHTML = `<span style="color: var(--text-muted); margin-right: 8px;">${index + 1}.</span>${word}`;
-                        wordsContainer.appendChild(wordDiv);
-                    });
-
-                    document.getElementById('mnemonicDisplay').style.display = 'block';
-                    document.getElementById('mnemonicHidden').style.display = 'none';
-                    alertDiv.innerHTML = '';
-
-                    // Start auto-hide countdown
-                    startMnemonicCountdown();
-                } else {
-                    throw new Error('No mnemonic returned. This wallet may not be an HD wallet.');
-                }
-            } catch(e) {
-                console.error('[Mnemonic] Export error:', e);
-                let errorMsg = e.message;
-
-                // Provide clearer error messages for common issues
-                if (errorMsg.includes('Failed to export mnemonic') || errorMsg.includes('wallet may be locked')) {
-                    // If we already unlocked successfully, this likely means mnemonic wasn't stored
-                    errorMsg = 'Unable to export recovery phrase. This wallet may have been created before HD wallet support, or the recovery phrase was not saved during wallet creation. Please backup your wallet.dat file instead.';
-                }
-
-                alertDiv.innerHTML = `<div class="alert alert-error">${errorMsg}</div>`;
-            }
+            // Full node mode: mnemonic export via RPC disabled for security
+            alertDiv.innerHTML = '<div class="alert" style="background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); color: var(--warning); line-height: 1.6;">' +
+                '<strong>Mnemonic Export Disabled</strong><br>' +
+                'For security reasons, exporting the recovery phrase via RPC is no longer available.<br><br>' +
+                'Your recovery phrase was shown when you first created your wallet. If you have lost it, you can still restore your wallet using the <strong>Recover Wallet</strong> section below if you remember the phrase.<br><br>' +
+                'Always keep your recovery phrase written down in a secure location offline.</div>';
         }
 
         // Start countdown timer for auto-hide

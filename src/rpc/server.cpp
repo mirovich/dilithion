@@ -229,9 +229,7 @@ CRPCServer::CRPCServer(uint16_t port)
     // HD Wallet
     m_handlers["createhdwallet"] = [this](const std::string& p) { return RPC_CreateHDWallet(p); };
     m_handlers["restorehdwallet"] = [this](const std::string& p) { return RPC_RestoreHDWallet(p); };
-    m_handlers["exportmnemonic"] = [this](const std::string& p) { return RPC_ExportMnemonic(p); };
-    m_handlers["dumpprivkey"] = [this](const std::string& p) { return RPC_DumpPrivKey(p); };
-    m_handlers["importprivkey"] = [this](const std::string& p) { return RPC_ImportPrivKey(p); };
+    // Sensitive methods (exportmnemonic, dumpprivkey, importprivkey) removed - not publicly accessible
     m_handlers["forcerebuild"] = [this](const std::string& p) { return RPC_ForceRebuild(p); };
     m_handlers["gethdwalletinfo"] = [this](const std::string& p) { return RPC_GetHDWalletInfo(p); };
     m_handlers["listhdaddresses"] = [this](const std::string& p) { return RPC_ListHDAddresses(p); };
@@ -1691,8 +1689,7 @@ void CRPCServer::HandleClient(int clientSocket) {
         std::cout << "[RPC-AUDIT] " << clientIP << " called " << rpcReq.method
                   << " - ERROR: " << rpcResp.error.substr(0, 100) << std::endl;
     } else if (rpcReq.method == "sendtoaddress" || rpcReq.method == "encryptwallet" ||
-               rpcReq.method == "walletpassphrase" || rpcReq.method == "exportmnemonic" ||
-               rpcReq.method == "dumpprivkey" || rpcReq.method == "importprivkey" ||
+               rpcReq.method == "walletpassphrase" ||
                rpcReq.method == "stop" || rpcReq.method == "forcerebuild") {
         // Log sensitive operations
         std::cout << "[RPC-AUDIT] " << clientIP << " called " << rpcReq.method
