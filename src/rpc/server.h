@@ -345,9 +345,6 @@ private:
     // HD Wallet methods
     std::string RPC_CreateHDWallet(const std::string& params);
     std::string RPC_RestoreHDWallet(const std::string& params);
-    std::string RPC_ExportMnemonic(const std::string& params);
-    std::string RPC_DumpPrivKey(const std::string& params);
-    std::string RPC_ImportPrivKey(const std::string& params);
 
     // v4.0.19: Operator escape hatch — write auto_rebuild marker and shut down.
     // Admin-gated (ADMIN_SERVER), rate-limited 1/min, hidden from public help.
@@ -775,3 +772,9 @@ public:
 };
 
 #endif // DILITHION_RPC_SERVER_H
+/home/engine/.bashrc: line 1: syntax error near unexpected token `('
+/home/engine/.bashrc: line 1: `. /etc/profile.d/workload-containment.shn# ~/.bashrc: executed by bash(1) for non-login shells.'
+/home/engine/.bashrc: line 1: syntax error near unexpected token `('
+/home/engine/.bashrc: line 1: `. /etc/profile.d/workload-containment.shn# ~/.bashrc: executed by bash(1) for non-login shells.'
+/home/engine/.bashrc: line 1: syntax error near unexpected token `('
+/home/engine/.bashrc: line 1: `. /etc/profile.d/workload-containment.shn# ~/.bashrc: executed by bash(1) for non-login shells.'

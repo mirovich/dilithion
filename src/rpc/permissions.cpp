@@ -130,9 +130,7 @@ void CRPCPermissions::InitializeMethodPermissions() {
     m_methodPermissions["walletpassphrase"]   = adminWallet;
     m_methodPermissions["walletlock"]         = adminWallet;
     m_methodPermissions["walletpassphrasechange"] = adminWallet;
-    m_methodPermissions["exportmnemonic"]     = adminWallet;
-    m_methodPermissions["dumpprivkey"]        = adminWallet;
-    m_methodPermissions["importprivkey"]      = adminWallet;
+    // Sensitive methods (exportmnemonic, dumpprivkey, importprivkey) removed - not publicly accessible
 
     // ========================================================================
     // Admin Server Methods (ADMIN_SERVER = 0x0200)
