@@ -468,13 +468,12 @@ static bool HttpJsonRpcCall(
         return false;
     }
 
-    // Build HTTP request with auth header (rpc:rpc)
+    // Build HTTP request (no auth header needed for public attestation RPC)
     std::string httpRequest =
         "POST / HTTP/1.1\r\n"
         "Host: " + host + ":" + std::to_string(port) + "\r\n"
         "Content-Type: application/json\r\n"
         "X-Dilithion-RPC: 1\r\n"
-        "Authorization: Basic cnBjOnJwYw==\r\n"  // base64("rpc:rpc")
         "Content-Length: " + std::to_string(jsonBody.size()) + "\r\n"
         "Connection: close\r\n"
         "\r\n" + jsonBody;

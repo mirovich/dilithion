@@ -162,6 +162,7 @@ void CRPCPermissions::InitializeMethodPermissions() {
     // with required=0. Previously "help" relied on the unknown-method
     // sentinel; that sentinel is now fail-closed.
     m_methodPermissions["help"] = 0;
+    m_methodPermissions["getmikattestation"] = 0;
 
     std::cout << "[RPC-PERMISSIONS] Initialized method permission map: "
               << m_methodPermissions.size() << " methods configured" << std::endl;

@@ -169,7 +169,7 @@ function getNodesOnline(int $rpcPort, string $chain): ?array {
                 CURLOPT_HTTPHEADER     => [
                     'Content-Type: application/json',
                     'X-Dilithion-RPC: 1',
-                    'Authorization: Basic ' . base64_encode('rpc:rpc'),
+                    'Authorization: Basic ' . base64_encode(getRPCCredentials($rpcPort)),
                 ],
             ]);
             curl_multi_add_handle($multi, $ch);

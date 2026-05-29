@@ -14,17 +14,37 @@
  */
 
 #include <wallet/wallet.h>
+#include <rpc/auth.h>
+#include <util/config.h>
+#include <util/strencodings.h>
 #include <iostream>
 #include <iomanip>
 #include <vector>
 #include <string>
 #include <cstdlib>
 #include <fstream>
+#include <cstring>
 
 #ifdef _WIN32
     #include <windows.h>
     #include <shlobj.h>
+    #include <winsock2.h>
+    #include <ws2tcpip.h>
+    #pragma comment(lib, "ws2_32.lib")
+#else
+    #include <sys/socket.h>
+    #include <netinet/in.h>
+    #include <arpa/inet.h>
+    #include <unistd.h>
+    #include <netdb.h>
 #endif
+
+// Forward declaration of RPC helper
+bool CallRPC(const std::string& method, const std::string& params, 
+             const std::string& auth, uint16_t port, std::string& response);
+std::string GetRPCCredentials(const std::string& datadir);
+uint16_t GetRPCPort(const std::string& datadir, const std::string& unit);
+
 
 // Get the home/appdata directory (Unicode-safe on Windows)
 std::string GetHomeDir() {
@@ -86,13 +106,59 @@ std::string DetectUnit(const std::string& datadir) {
 }
 
 void print_wallet_info(const std::string& datadir) {
+    std::string unit = DetectUnit(datadir);
+    uint16_t rpcport = GetRPCPort(datadir, unit);
+    std::string auth = GetRPCCredentials(datadir);
+    
+    bool rpc_success = false;
+    std::string response;
+
+    // Try RPC first
+    if (!auth.empty()) {
+        if (CallRPC("getbalance", "[]", auth, rpcport, response)) {
+            // Very simple JSON parsing for getbalance result
+            size_t resPos = response.find("\"result\":");
+            if (resPos != std::string::npos) {
+                std::string balanceStr = response.substr(resPos + 9);
+                size_t commaPos = balanceStr.find_first_of(",}");
+                if (commaPos != std::string::npos) {
+                    balanceStr = balanceStr.substr(0, commaPos);
+                    double balance = std::stod(balanceStr);
+                    
+                    std::cout << "  Chain: " << unit << " (via RPC)" << std::endl;
+                    std::cout << "  Total Balance: " << std::fixed << std::setprecision(8) 
+                              << balance << " " << unit << std::endl;
+                    
+                    // Also get addresses for completeness
+                    if (CallRPC("getaddresses", "[]", auth, rpcport, response)) {
+                         size_t count = 0;
+                         size_t pos = 0;
+                         while ((pos = response.find("\"", pos)) != std::string::npos) {
+                             count++;
+                             pos = response.find("\"", pos + 1);
+                             if (pos != std::string::npos) pos++;
+                         }
+                         // Each address has 2 quotes, result is an array of strings
+                         // Rough estimate of address count
+                         std::cout << "  Addresses: ~" << (count / 2) << std::endl;
+                    }
+                    
+                    rpc_success = true;
+                }
+            }
+        }
+    }
+
+    if (rpc_success) return;
+
+    // Fallback to direct file access if RPC fails
+    std::cout << "  (Node not responding on port " << rpcport << ", falling back to direct file access)" << std::endl;
+
 #ifdef _WIN32
     std::string wallet_file = datadir + "\\wallet.dat";
 #else
     std::string wallet_file = datadir + "/wallet.dat";
 #endif
-
-    std::string unit = DetectUnit(datadir);
 
     CWallet wallet;
 
@@ -218,8 +284,114 @@ int main(int argc, char* argv[]) {
 
     std::cout << "=========================================" << std::endl;
     std::cout << std::endl;
-    std::cout << "Press Enter to exit...";
-    std::cin.get();
-
     return 0;
 }
+
+// RPC Helper implementation
+bool CallRPC(const std::string& method, const std::string& params, 
+             const std::string& auth, uint16_t port, std::string& response) {
+    std::string jsonBody = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"" + method + "\",\"params\":" + params + "}";
+    
+#ifdef _WIN32
+    SOCKET sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (sock == INVALID_SOCKET) return false;
+#else
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) return false;
+#endif
+
+#ifdef _WIN32
+    DWORD timeout_ms = 2000;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout_ms, sizeof(timeout_ms));
+#else
+    struct timeval tv;
+    tv.tv_sec = 2;
+    tv.tv_usec = 0;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
+#endif
+
+    struct sockaddr_in addr;
+    std::memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+
+    if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+#ifdef _WIN32
+        closesocket(sock);
+#else
+        close(sock);
+#endif
+        return false;
+    }
+
+    std::string authBase64 = RPCAuth::Base64Encode(reinterpret_cast<const uint8_t*>(auth.c_str()), auth.size());
+    std::string httpRequest = 
+        "POST / HTTP/1.1\r\n"
+        "Host: 127.0.0.1:" + std::to_string(port) + "\r\n"
+        "Content-Type: application/json\r\n"
+        "X-Dilithion-RPC: 1\r\n"
+        "Authorization: Basic " + authBase64 + "\r\n"
+        "Content-Length: " + std::to_string(jsonBody.size()) + "\r\n"
+        "Connection: close\r\n"
+        "\r\n" + jsonBody;
+
+    send(sock, httpRequest.c_str(), httpRequest.size(), 0);
+
+    char buf[4096];
+    int bytes;
+    response.clear();
+    while ((bytes = recv(sock, buf, sizeof(buf) - 1, 0)) > 0) {
+        buf[bytes] = '\0';
+        response += buf;
+    }
+
+#ifdef _WIN32
+    closesocket(sock);
+#else
+    close(sock);
+#endif
+    
+    // Find body
+    size_t bodyPos = response.find("\r\n\r\n");
+    if (bodyPos != std::string::npos) {
+        response = response.substr(bodyPos + 4);
+    }
+    
+    return !response.empty();
+}
+
+std::string GetRPCCredentials(const std::string& datadir) {
+    // 1. Try .cookie
+    std::string cookiePath = datadir + "/.cookie";
+    std::ifstream cookieFile(cookiePath);
+    if (cookieFile.is_open()) {
+        std::string creds;
+        std::getline(cookieFile, creds);
+        return creds;
+    }
+    
+    // 2. Try dilithion.conf
+    std::string confPath = datadir + "/dilithion.conf";
+    CConfigParser config;
+    if (config.LoadConfigFile(confPath)) {
+        std::string user = config.GetString("rpcuser", "");
+        std::string pass = config.GetString("rpcpassword", "");
+        if (!user.empty() && !pass.empty()) {
+            return user + ":" + pass;
+        }
+    }
+    
+    return "";
+}
+
+uint16_t GetRPCPort(const std::string& datadir, const std::string& unit) {
+    std::string confPath = datadir + "/dilithion.conf";
+    CConfigParser config;
+    if (config.LoadConfigFile(confPath)) {
+        int64_t port = config.GetInt64("rpcport", 0);
+        if (port > 0 && port <= 65535) return (uint16_t)port;
+    }
+    return (unit == "DilV") ? 9332 : 8332;
+}
+

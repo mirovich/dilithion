@@ -20,9 +20,41 @@ function getChainConfig() {
 // Persistent curl handle for connection reuse (keep-alive)
 $_rpcCurlHandle = null;
 $_rpcPort = null;
+$_rpcAuth = null;
+
+function getRPCCredentials($port) {
+    // Phase 10: Dynamic credential discovery (.cookie or dilithion.conf)
+    $home = getenv('HOME');
+    if (!$home) {
+        $home = getenv('APPDATA') ?: '/var/lib/dilithion';
+    }
+    
+    $chain = $port == 9332 ? 'dilv' : 'dil';
+    $dirName = $port == 9332 ? '.dilv' : '.dilithion';
+    $datadir = "{$home}/{$dirName}";
+    
+    // 1. Try .cookie file (Bitcoin Core model)
+    $cookieFile = "{$datadir}/.cookie";
+    if (file_exists($cookieFile)) {
+        return trim(file_get_contents($cookieFile));
+    }
+    
+    // 2. Try dilithion.conf
+    $confFile = "{$datadir}/dilithion.conf";
+    if (file_exists($confFile)) {
+        $conf = file_get_contents($confFile);
+        $user = ''; $pass = '';
+        if (preg_match('/^rpcuser=(.*)$/m', $conf, $m)) $user = trim($m[1]);
+        if (preg_match('/^rpcpassword=(.*)$/m', $conf, $m)) $pass = trim($m[1]);
+        if ($user && $pass) return "{$user}:{$pass}";
+    }
+    
+    // 3. Last resort fallback (v4.0 legacy default)
+    return "rpc:rpc";
+}
 
 function dilithionRPC($method, $params = []) {
-    global $_rpcCurlHandle, $_rpcPort;
+    global $_rpcCurlHandle, $_rpcPort, $_rpcAuth;
 
     $config = getChainConfig();
     $port = $config['rpc_port'];
@@ -31,6 +63,7 @@ function dilithionRPC($method, $params = []) {
     if ($_rpcCurlHandle === null || $_rpcPort !== $port) {
         if ($_rpcCurlHandle !== null) curl_close($_rpcCurlHandle);
         $_rpcPort = $port;
+        $_rpcAuth = getRPCCredentials($port);
         $_rpcCurlHandle = curl_init();
         curl_setopt($_rpcCurlHandle, CURLOPT_URL, "http://127.0.0.1:{$port}/");
         curl_setopt($_rpcCurlHandle, CURLOPT_RETURNTRANSFER, true);
@@ -43,7 +76,7 @@ function dilithionRPC($method, $params = []) {
         curl_setopt($_rpcCurlHandle, CURLOPT_HTTPHEADER, [
             'Content-Type: application/json',
             'X-Dilithion-RPC: 1',
-            'Authorization: Basic ' . base64_encode('rpc:rpc'),
+            'Authorization: Basic ' . base64_encode($_rpcAuth),
             'Connection: keep-alive'
         ]);
     }
