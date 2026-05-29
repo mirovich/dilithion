@@ -47,14 +47,14 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Bitcoin Core specific
-src/bitcoind
-src/bitcoin-cli
-src/bitcoin-tx
-src/bitcoin-wallet
-src/test/test_bitcoin
-src/qt/bitcoin-qt
-src/bench/bench_bitcoin
+# Components
+components/node/node/bitcoind
+components/node/node/bitcoin-cli
+components/node/node/bitcoin-tx
+components/node/node/bitcoin-wallet
+components/tests/test/test_bitcoin
+components/node/node/qt/bitcoin-qt
+components/node/node/bench/bench_bitcoin
 *.log
 *.dat
 *.conf
