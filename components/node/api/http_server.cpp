@@ -59,12 +59,8 @@ void CHttpServer::SetRestApiHandler(RestApiHandler handler) {
     m_rest_api_handler = handler;
 }
 
-void CHttpServer::SetWalletHandler(UIHandler handler) {
-    m_wallet_handler = handler;
-}
-
-void CHttpServer::SetMinerHandler(UIHandler handler) {
-    m_miner_handler = handler;
+void CHttpServer::RegisterPathHandler(const std::string& path, UIHandler handler) {
+    m_path_handlers[path] = handler;
 }
 
 // Start the HTTP server
@@ -334,36 +330,34 @@ void CHttpServer::HandleRequest(SOCKET client_socket) {
         return;
     }
 
-    // Handle GET /wallet or /wallet.html - serve embedded web wallet
-    if (method == "GET" && (path == "/wallet" || path == "/wallet.html" || path == "/")) {
-        if (m_wallet_handler) {
+    // Generic path handlers
+    if (method == "GET") {
+        auto it = m_path_handlers.find(path);
+        if (it != m_path_handlers.end()) {
             try {
-                std::string html = m_wallet_handler();
+                std::string html = it->second();
                 SendResponse(client_socket, 200, "text/html; charset=utf-8", html);
             } catch (const std::exception& e) {
-                std::cerr << "[HttpServer] Error serving wallet: " << e.what() << std::endl;
+                std::cerr << "[HttpServer] Error serving path " << path << ": " << e.what() << std::endl;
                 Send500(client_socket);
             }
-        } else {
-            Send404(client_socket);
+            return;
         }
-        return;
-    }
 
-    // Handle GET /miner - serve miner UI
-    if (method == "GET" && path == "/miner") {
-        if (m_miner_handler) {
-            try {
-                std::string html = m_miner_handler();
-                SendResponse(client_socket, 200, "text/html; charset=utf-8", html);
-            } catch (const std::exception& e) {
-                std::cerr << "[HttpServer] Error serving miner: " << e.what() << std::endl;
-                Send500(client_socket);
+        // Handle root / or /wallet.html aliases for /wallet
+        if (path == "/" || path == "/wallet.html") {
+            auto it_wallet = m_path_handlers.find("/wallet");
+            if (it_wallet != m_path_handlers.end()) {
+                try {
+                    std::string html = it_wallet->second();
+                    SendResponse(client_socket, 200, "text/html; charset=utf-8", html);
+                } catch (const std::exception& e) {
+                    std::cerr << "[HttpServer] Error serving wallet alias: " << e.what() << std::endl;
+                    Send500(client_socket);
+                }
+                return;
             }
-        } else {
-            Send404(client_socket);
         }
-        return;
     }
 
     // Handle GET /api/stats

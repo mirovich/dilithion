@@ -3589,8 +3589,8 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
         CHttpServer http_server(api_port, config.public_api);
         g_node_state.http_server = &http_server;
 
-        http_server.SetWalletHandler(GetWalletHTML);
-        http_server.SetMinerHandler(GetMinerHTML);
+        http_server.RegisterPathHandler("/wallet", GetWalletHTML);
+        http_server.RegisterPathHandler("/miner", GetMinerHTML);
         // STRESS TEST FIX: Create cached stats for lock-free API responses
         // Stats are updated every 1 second by background thread, never blocking API
         CCachedChainStats cached_stats;

@@ -27,7 +27,8 @@ fi
 
 chmod +x dilithion-node 2>/dev/null
 
-# Detect HTTP API port
+# Detect ports
+RPC_PORT=8332
 API_PORT=8334
 
 # Function to open browser cross-platform
@@ -77,11 +78,11 @@ echo -e "${GREEN}================================================${NC}"
 echo -e "${GREEN}  Node is running! Opening miner dashboard...${NC}"
 echo -e "${GREEN}================================================${NC}"
 echo ""
-echo "URL: http://127.0.0.1:${RPC_PORT}/miner"
+echo "URL: http://127.0.0.1:${API_PORT}/miner"
 echo ""
 
 # Open browser
-open_browser "http://127.0.0.1:${RPC_PORT}/miner"
+open_browser "http://127.0.0.1:${API_PORT}/miner"
 
 echo "Press Ctrl+C to stop the node, or use the"
 echo "\"Shutdown Node\" button in the dashboard."

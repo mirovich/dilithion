@@ -3731,8 +3731,8 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
         int api_port = config.testnet ? 18334 : 8334;
         // CVE-2026-RPC-CORS: gate all-interfaces bind on --public-api
         CHttpServer http_server(api_port, config.public_api);
-        http_server.SetWalletHandler(GetWalletHTML);
-        http_server.SetMinerHandler(GetMinerHTML);
+        http_server.RegisterPathHandler("/wallet", GetWalletHTML);
+        http_server.RegisterPathHandler("/miner", GetMinerHTML);
         g_node_state.http_server = &http_server;
 
         // STRESS TEST FIX: Create cached stats for lock-free API responses
