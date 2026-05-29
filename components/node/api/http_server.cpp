@@ -2,7 +2,6 @@
 // Distributed under the MIT software license
 
 #include <api/http_server.h>
-#include <api/wallet_html.h>
 #include <net/sock.h>
 #include <iostream>
 #include <cstring>
@@ -58,6 +57,14 @@ void CHttpServer::SetMetricsHandler(MetricsHandler handler) {
 // Set REST API handler function for /api/v1/* endpoints
 void CHttpServer::SetRestApiHandler(RestApiHandler handler) {
     m_rest_api_handler = handler;
+}
+
+void CHttpServer::SetWalletHandler(UIHandler handler) {
+    m_wallet_handler = handler;
+}
+
+void CHttpServer::SetMinerHandler(UIHandler handler) {
+    m_miner_handler = handler;
 }
 
 // Start the HTTP server
@@ -329,12 +336,32 @@ void CHttpServer::HandleRequest(SOCKET client_socket) {
 
     // Handle GET /wallet or /wallet.html - serve embedded web wallet
     if (method == "GET" && (path == "/wallet" || path == "/wallet.html" || path == "/")) {
-        try {
-            const std::string& html = GetWalletHTML();
-            SendResponse(client_socket, 200, "text/html; charset=utf-8", html);
-        } catch (const std::exception& e) {
-            std::cerr << "[HttpServer] Error serving wallet: " << e.what() << std::endl;
-            Send500(client_socket);
+        if (m_wallet_handler) {
+            try {
+                std::string html = m_wallet_handler();
+                SendResponse(client_socket, 200, "text/html; charset=utf-8", html);
+            } catch (const std::exception& e) {
+                std::cerr << "[HttpServer] Error serving wallet: " << e.what() << std::endl;
+                Send500(client_socket);
+            }
+        } else {
+            Send404(client_socket);
+        }
+        return;
+    }
+
+    // Handle GET /miner - serve miner UI
+    if (method == "GET" && path == "/miner") {
+        if (m_miner_handler) {
+            try {
+                std::string html = m_miner_handler();
+                SendResponse(client_socket, 200, "text/html; charset=utf-8", html);
+            } catch (const std::exception& e) {
+                std::cerr << "[HttpServer] Error serving miner: " << e.what() << std::endl;
+                Send500(client_socket);
+            }
+        } else {
+            Send404(client_socket);
         }
         return;
     }

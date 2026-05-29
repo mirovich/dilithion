@@ -42,8 +42,8 @@ FOOTER
 
 cd "$(dirname "$0")/.."
 
-gen website/wallet.html src/api/wallet_html.h \
+gen website/wallet.html components/wallet/wallet/wallet_html.h \
     GetWalletHTML DILITHION_API_WALLET_HTML_H WALLET_HTML
 
-gen website/miner.html src/api/miner_html.h \
+gen website/miner.html components/miner/miner/miner_html.h \
     GetMinerHTML DILITHION_API_MINER_HTML_H MINER_HTML

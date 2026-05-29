@@ -149,6 +149,12 @@ public:
                                                       const std::string& clientIP)>;
 
     /**
+     * UI handler function type
+     * Should return HTML string
+     */
+    using UIHandler = std::function<std::string()>;
+
+    /**
      * Constructor
      * @param port Port to listen on (default: 8334 for testnet)
      * @param public_api If true, bind to all interfaces (seed nodes / --public-api).
@@ -184,6 +190,16 @@ public:
      * @param handler Function that handles REST API requests
      */
     void SetRestApiHandler(RestApiHandler handler);
+
+    /**
+     * Set wallet UI handler function
+     */
+    void SetWalletHandler(UIHandler handler);
+
+    /**
+     * Set miner UI handler function
+     */
+    void SetMinerHandler(UIHandler handler);
 
     /**
      * Start the HTTP server
@@ -272,6 +288,8 @@ private:
     StatsHandler m_stats_handler;          // Stats handler function
     MetricsHandler m_metrics_handler;      // Prometheus metrics handler
     RestApiHandler m_rest_api_handler;     // REST API handler for light wallet
+    UIHandler m_wallet_handler;            // Wallet UI handler
+    UIHandler m_miner_handler;             // Miner UI handler
 
     // Server state - STRESS TEST FIX: Thread pool pattern
     std::thread m_accept_thread;           // Accept thread (listens for connections)
