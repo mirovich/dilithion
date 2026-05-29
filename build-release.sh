@@ -17,7 +17,7 @@ echo ""
 
 # Check that genesis block has been mined
 echo "[1/7] Verifying genesis block..."
-GENESIS_NONCE=$(grep "const uint32_t NONCE" src/node/genesis.h | awk '{print $5}' | tr -d ';')
+GENESIS_NONCE=$(grep "const uint32_t NONCE" components/node/node/genesis.h | awk '{print $5}' | tr -d ';')
 if [ "$GENESIS_NONCE" = "0" ]; then
     echo "ERROR: Genesis block not mined yet (NONCE = 0)"
     echo "Please mine genesis block first with: ./genesis_gen --mine"
