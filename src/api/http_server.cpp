@@ -34,10 +34,8 @@
 #endif
 
 // Constructor
-CHttpServer::CHttpServer(int port, bool public_api)
-    : m_port(port), m_public_api(public_api),
-      m_num_threads(DEFAULT_HTTP_THREADS),
-      m_work_queue(CHttpWorkQueue<SOCKET>::DEFAULT_HTTP_WORKQUEUE) {
+CHttpServer::CHttpServer(int port)
+    : m_port(port), m_num_threads(DEFAULT_HTTP_THREADS), m_work_queue(CHttpWorkQueue<SOCKET>::DEFAULT_HTTP_WORKQUEUE) {
 }
 
 // Destructor
@@ -77,21 +75,10 @@ bool CHttpServer::Start() {
     }
 #endif
 
-    // CVE-2026-RPC-CORS: Bind to 127.0.0.1 by default. Only seed nodes that
-    // opt in via --public-api (and have configured RPC auth) bind to all
-    // interfaces. Previously this server bound 0.0.0.0 unconditionally,
-    // exposing /api/v1/* + /wallet HTML + telemetry to any LAN attacker.
-    std::string bind_addr;
-    if (m_public_api) {
-        bind_addr = "";  // All interfaces (dual-stack IPv4+IPv6)
-        std::cout << "[HttpServer] Public API mode enabled - binding to all interfaces:" << m_port << std::endl;
-    } else {
-        bind_addr = "127.0.0.1";  // Localhost only
-    }
-
+    // Create dual-stack listen socket (all interfaces for HTTP API)
     socket_t http_sock;
     bool is_ipv6;
-    if (!CSock::CreateListenSocket(static_cast<uint16_t>(m_port), bind_addr, http_sock, is_ipv6)) {
+    if (!CSock::CreateListenSocket(static_cast<uint16_t>(m_port), "", http_sock, is_ipv6)) {
         std::cerr << "[HttpServer] Failed to create listen socket on port " << m_port << std::endl;
 #ifdef _WIN32
         WSACleanup();
@@ -275,11 +262,16 @@ void CHttpServer::HandleRequest(SOCKET client_socket) {
         return;
     }
 
-    // CVE-2026-RPC-CORS: No CORS. All OPTIONS preflights rejected.
-    // Same-origin requests do not preflight; cross-origin callers unsupported.
+    // Handle OPTIONS preflight requests for CORS (browsers send this before cross-origin requests)
+    // Must be handled BEFORE REST API routing to allow light wallet browser access
     if (method == "OPTIONS") {
+        // Build response with comprehensive CORS headers
         std::ostringstream response;
-        response << "HTTP/1.1 403 Forbidden\r\n";
+        response << "HTTP/1.1 204 No Content\r\n";
+        response << "Access-Control-Allow-Origin: *\r\n";
+        response << "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n";
+        response << "Access-Control-Allow-Headers: Content-Type, Accept\r\n";
+        response << "Access-Control-Max-Age: 86400\r\n";  // Cache preflight for 24 hours
         response << "Content-Length: 0\r\n";
         response << "Connection: close\r\n";
         response << "\r\n";
@@ -409,7 +401,10 @@ void CHttpServer::SendResponse(SOCKET client_socket,
     }
     response << "\r\n";
 
-    // CVE-2026-RPC-CORS: NO CORS headers. Same-origin only.
+    // CORS headers
+    response << "Access-Control-Allow-Origin: *\r\n";
+    response << "Access-Control-Allow-Methods: GET, OPTIONS\r\n";
+    response << "Access-Control-Allow-Headers: Content-Type\r\n";
 
     // Content headers
     response << "Content-Type: " << content_type << "\r\n";
