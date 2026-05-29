@@ -917,27 +917,93 @@ void CRPCServer::HandleClient(int clientSocket) {
         }
     }
 
-    // Phase 2: If headers found, check Content-Length and read remaining body
+    // Phase 2: If headers found, check Content-Length and read remaining body.
+    // CVE-2026-RPC-PARSER (surgical): line-anchored header parsing.
+    // Previously `headers.find("Content-Length:")` was a substring match that
+    // would have matched `X-Content-Length:` or any other header containing
+    // that substring. Also did not reject duplicate Content-Length or any
+    // Transfer-Encoding header, both classic HTTP-request-smuggling shapes.
+    // The full libevent migration is Phase B; this is the surgical guard.
     if (requestComplete && headerEndPos != std::string::npos) {
-        // Extract Content-Length from headers
         std::string headers(buffer.data(), headerEndPos);
+
+        auto ieq = [](char a, char b) {
+            if (a >= 'A' && a <= 'Z') a = static_cast<char>(a + 32);
+            if (b >= 'A' && b <= 'Z') b = static_cast<char>(b + 32);
+            return a == b;
+        };
+        auto starts_with_ci = [&ieq](const std::string& line, const char* name, size_t name_len) {
+            if (line.size() < name_len + 1) return false;
+            for (size_t i = 0; i < name_len; i++) {
+                if (!ieq(line[i], name[i])) return false;
+            }
+            return line[name_len] == ':';
+        };
+
+        // Walk header lines starting AFTER the request line.
+        size_t pos = headers.find("\r\n");
+        if (pos == std::string::npos) pos = 0; else pos += 2;
+
+        int clCount = 0;
+        bool teSeen = false;
         size_t contentLength = 0;
-        size_t clPos = headers.find("Content-Length:");
-        if (clPos == std::string::npos) {
-            clPos = headers.find("content-length:");
-        }
-        if (clPos != std::string::npos) {
-            size_t valStart = clPos + 15;  // strlen("Content-Length:")
-            while (valStart < headers.size() && headers[valStart] == ' ') valStart++;
-            size_t valEnd = headers.find("\r\n", valStart);
-            if (valEnd == std::string::npos) valEnd = headers.find("\n", valStart);
-            if (valEnd != std::string::npos) {
-                contentLength = std::stoul(headers.substr(valStart, valEnd - valStart));
+        bool malformed = false;
+
+        while (pos < headers.size()) {
+            size_t lineEnd = headers.find("\r\n", pos);
+            if (lineEnd == std::string::npos) lineEnd = headers.size();
+            if (lineEnd == pos) break;  // blank line: end of headers
+            std::string line = headers.substr(pos, lineEnd - pos);
+            pos = lineEnd + 2;
+
+            // Reject obs-fold (leading whitespace continuation lines)
+            if (!line.empty() && (line[0] == ' ' || line[0] == '\t')) {
+                malformed = true;
+                break;
+            }
+
+            if (starts_with_ci(line, "Content-Length", 14)) {
+                clCount++;
+                if (clCount > 1) { malformed = true; break; }
+                size_t v = 15;
+                while (v < line.size() && (line[v] == ' ' || line[v] == '\t')) v++;
+                // Value must be only digits and within sane range
+                if (v >= line.size()) { malformed = true; break; }
+                size_t end = line.size();
+                while (end > v && (line[end-1] == ' ' || line[end-1] == '\t')) end--;
+                if (end - v > 19) { malformed = true; break; }  // 64-bit decimal max ~19 digits
+                size_t cl = 0;
+                for (size_t k = v; k < end; k++) {
+                    if (line[k] < '0' || line[k] > '9') { malformed = true; break; }
+                    cl = cl * 10 + static_cast<size_t>(line[k] - '0');
+                    if (cl > MAX_REQUEST_SIZE) { malformed = true; break; }
+                }
+                if (malformed) break;
+                contentLength = cl;
+            } else if (starts_with_ci(line, "Transfer-Encoding", 17)) {
+                // CVE-2026-RPC-PARSER: refuse Transfer-Encoding entirely.
+                // Dilithion RPC speaks Content-Length-framed HTTP/1.1 only.
+                // TE creates ambiguity (TE.CL / CL.TE smuggling).
+                teSeen = true;
+                break;
             }
         }
 
+        if (malformed || teSeen) {
+            std::string body = "{\"error\":\"Malformed HTTP request (CVE-2026-RPC-PARSER)\",\"code\":-32700}";
+            std::ostringstream oss;
+            oss << "HTTP/1.1 400 Bad Request\r\n"
+                << "Content-Type: application/json\r\n"
+                << "Content-Length: " << body.size() << "\r\n"
+                << "Connection: close\r\n"
+                << "\r\n"
+                << body;
+            std::string resp = oss.str();
+            send_response_and_cleanup(resp);
+            return;
+        }
+
         // Read remaining body bytes if needed
-        size_t bodyBytesRead = buffer.size() - headerEndPos;
         size_t totalNeeded = headerEndPos + contentLength;
         if (totalNeeded > MAX_REQUEST_SIZE) totalNeeded = MAX_REQUEST_SIZE;
 
@@ -1105,6 +1171,7 @@ void CRPCServer::HandleClient(int clientSocket) {
 
     // Check authentication if configured
     if (RPCAuth::IsAuthConfigured()) {
+        userPermissions = 0; // Default to no permissions if auth is required
         std::string authHeader;
         if (!ExtractAuthHeader(request, authHeader)) {
             // No Authorization header
@@ -1300,7 +1367,7 @@ void CRPCServer::HandleClient(int clientSocket) {
 
         // Phase 2: Execute batch requests
         auto batch_start = std::chrono::steady_clock::now();
-        std::vector<RPCResponse> batch_responses = ExecuteBatchRPC(batch_requests, clientIP, username);
+        std::vector<RPCResponse> batch_responses = ExecuteBatchRPC(batch_requests, clientIP, username, userPermissions);
         auto batch_end = std::chrono::steady_clock::now();
         auto batch_duration = std::chrono::duration_cast<std::chrono::milliseconds>(
             batch_end - batch_start);
@@ -1930,17 +1997,11 @@ std::vector<RPCRequest> CRPCServer::ParseBatchRPCRequest(const std::string& json
 
 std::vector<RPCResponse> CRPCServer::ExecuteBatchRPC(const std::vector<RPCRequest>& requests,
                                                       const std::string& clientIP,
-                                                      const std::string& username) {
+                                                      const std::string& username,
+                                                      uint32_t userPermissions) {
     std::vector<RPCResponse> responses;
-
-    // Get user permissions once (if permissions enabled and user authenticated)
-    uint32_t userPermissions = static_cast<uint32_t>(RPCPermission::ROLE_ADMIN);
-    if (m_permissions && !username.empty()) {
-        // Note: We already authenticated in HandleClient, so we can't re-authenticate here
-        // Instead, we'll use a simplified permission check - in a real implementation,
-        // we'd cache the permissions from HandleClient
-        // For now, we'll check permissions per request (less efficient but correct)
-    }
+    (void)clientIP;
+    (void)username;
 
     for (const auto& request : requests) {
         // Handle invalid requests (from batch parsing)
@@ -1948,20 +2009,29 @@ std::vector<RPCResponse> CRPCServer::ExecuteBatchRPC(const std::vector<RPCReques
             RPCResponse error_resp = RPCResponse::ErrorStructured(-32600,
                 "Invalid Request", request.id, "RPC-INVALID-REQUEST",
                 {"Check JSON-RPC 2.0 format", "Verify request is a valid object"});
-            // Move error response (avoids unnecessary copy)
             responses.push_back(std::move(error_resp));
             continue;
         }
 
-        // Check method permission (if permissions enabled)
-        // Note: Permission checking was already done in HandleClient for the batch,
-        // but we check per-request here for granular control
-        // In a production system, we'd pass the userPermissions from HandleClient
-        // For now, we allow all requests in batch (permissions checked at batch level)
-        
+        // CVE-2026-RPC-AUTH: per-request permission check inside the batch
+        // loop. HandleClient pre-checks the whole batch before calling us,
+        // so this is defense in depth — if the pre-check is ever skipped
+        // or refactored away, we still fail closed per-request.
+        if (m_permissions &&
+            !m_permissions->CheckMethodPermission(userPermissions, request.method)) {
+            std::vector<std::string> recovery = {
+                "Contact administrator to grant required permissions",
+                "Verify you are using the correct user account"
+            };
+            RPCResponse denied = RPCResponse::ErrorStructured(-32000,
+                std::string("Insufficient permissions for method '") + request.method + "'",
+                request.id, "RPC-PERMISSION-DENIED", recovery);
+            responses.push_back(std::move(denied));
+            continue;
+        }
+
         // Execute request
         RPCResponse resp = ExecuteRPC(request);
-        // Move response (avoids unnecessary copy)
         responses.push_back(std::move(resp));
     }
 

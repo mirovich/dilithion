@@ -156,8 +156,8 @@ void CRPCPermissions::InitializeMethodPermissions() {
     // Public Methods (no permission required)
     // ========================================================================
 
-    // "help" - deliberately not added (returns 0 from GetMethodPermissions)
-    // Unknown methods also return 0, treated as public
+    m_methodPermissions["help"]               = 0;
+    m_methodPermissions["gethelp"]            = 0;
 
     std::cout << "[RPC-PERMISSIONS] Initialized method permission map: "
               << m_methodPermissions.size() << " methods configured" << std::endl;
@@ -298,22 +298,20 @@ bool CRPCPermissions::InitializeLegacyMode(const std::string& username,
         return false;
     }
 
-    // Generate random salt (32 bytes)
-    std::vector<uint8_t> salt(32);
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dis(0, 255);
-
-    for (size_t i = 0; i < salt.size(); i++) {
-        salt[i] = static_cast<uint8_t>(dis(gen));
+    // CVE-2026-RPC-KDF: generate salt with a cryptographic RNG (not mt19937)
+    // and hash with PBKDF2-HMAC-SHA3-256 (100k iterations). Previously this
+    // used mt19937 + single-round HMAC.
+    std::vector<uint8_t> salt;
+    if (!RPCAuth::GenerateSalt(salt)) {
+        std::cerr << "[RPC-PERMISSIONS] ERROR: Failed to generate cryptographic salt" << std::endl;
+        return false;
     }
 
-    // Hash password with salt using PBKDF2-HMAC-SHA3
-    // For simplicity, use HMAC-SHA3 directly (production: use PBKDF2 with iterations)
-    std::vector<uint8_t> passwordHash(32);
-    HMAC_SHA3_256(salt.data(), salt.size(),
-                  reinterpret_cast<const uint8_t*>(password.c_str()), password.length(),
-                  passwordHash.data());
+    std::vector<uint8_t> passwordHash;
+    if (!RPCAuth::HashPassword(password, salt, passwordHash)) {
+        std::cerr << "[RPC-PERMISSIONS] ERROR: Failed to hash password (PBKDF2)" << std::endl;
+        return false;
+    }
 
     // Create admin user
     RPCUser user;
@@ -350,17 +348,20 @@ bool CRPCPermissions::AuthenticateUser(const std::string& username,
 
     // Hash provided password with stored salt
     std::vector<uint8_t> computedHash(32);
-    HMAC_SHA3_256(user.passwordSalt.data(), user.passwordSalt.size(),
-                  reinterpret_cast<const uint8_t*>(password.c_str()), password.length(),
-                  computedHash.data());
-
-    // Constant-time comparison to prevent timing attacks
-    bool match = (user.passwordHash.size() == computedHash.size());
-    for (size_t i = 0; i < user.passwordHash.size() && i < computedHash.size(); i++) {
-        match = match && (user.passwordHash[i] == computedHash[i]);
+    // CVE-2026-RPC-KDF: PBKDF2-HMAC-SHA3-256 (100k iters), matching how
+    // legacy-mode credentials are now generated.
+    std::vector<uint8_t> computedHash;
+    if (!RPCAuth::HashPassword(password, user.passwordSalt, computedHash)) {
+        return false;
     }
 
-    if (!match) {
+    // Constant-time comparison to prevent timing attacks
+    if (user.passwordHash.size() != computedHash.size()) {
+        return false;
+    }
+    bool match = RPCAuth::SecureCompare(user.passwordHash.data(),
+                                        computedHash.data(),
+                                        computedHash.size());
         return false;  // Invalid password
     }
 
@@ -408,12 +409,16 @@ bool CRPCPermissions::CheckMethodPermission(uint32_t userPermissions,
 
 // CID 1675190 FIX: Internal unlocked version - safe because m_methodPermissions
 // is only written in constructor and read-only afterwards
+// CID 1675190 FIX: Internal unlocked version - safe because m_methodPermissions
+// is only written in constructor and read-only afterwards.
+// CVE-2026-RPC-PERMDEFAULT (H-A1): fail-closed at the getter so EVERY caller
+// inherits the safe default. Methods that must remain public must be
+// EXPLICITLY mapped with required=0 in the constructor.
 uint32_t CRPCPermissions::GetMethodPermissionsUnlocked(const std::string& method) const {
     auto it = m_methodPermissions.find(method);
     if (it == m_methodPermissions.end()) {
-        return 0;  // Unknown method, no permission required (public)
+        return static_cast<uint32_t>(RPCPermission::ROLE_ADMIN);
     }
-
     return it->second;
 }
 

@@ -278,11 +278,13 @@ private:
      * @param requests Vector of RPCRequest objects
      * @param clientIP Client IP address (for logging)
      * @param username Username (for logging)
+     * @param userPermissions User permissions (for authorization)
      * @return Vector of RPCResponse objects
      */
     std::vector<RPCResponse> ExecuteBatchRPC(const std::vector<RPCRequest>& requests,
                                             const std::string& clientIP,
-                                            const std::string& username);
+                                            const std::string& username,
+                                            uint32_t userPermissions);
 
     /**
      * Convert RPCResponse to JSON string
