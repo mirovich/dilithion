@@ -27,8 +27,8 @@ fi
 
 chmod +x dilithion-node 2>/dev/null
 
-# Detect RPC port (mainnet default)
-RPC_PORT=8332
+# Detect HTTP API port
+API_PORT=8334
 
 # Function to open browser cross-platform
 open_browser() {
@@ -46,14 +46,12 @@ open_browser() {
 }
 
 # Check if node is already running
-if curl -s --user rpc:rpc -H 'X-Dilithion-RPC: 1' -H 'content-type:application/json' \
-    --data-binary '{"jsonrpc":"2.0","id":1,"method":"getblockchaininfo","params":[]}' \
-    http://127.0.0.1:${RPC_PORT}/ > /dev/null 2>&1; then
+if curl -s http://127.0.0.1:${API_PORT}/api/health > /dev/null 2>&1; then
     echo -e "${BLUE}Node is already running! Opening miner dashboard...${NC}"
-    open_browser "http://127.0.0.1:${RPC_PORT}/miner"
+    open_browser "http://127.0.0.1:${API_PORT}/miner"
     echo ""
     echo -e "${GREEN}Dashboard opened in your browser.${NC}"
-    echo "URL: http://127.0.0.1:${RPC_PORT}/miner"
+    echo "URL: http://127.0.0.1:${API_PORT}/miner"
     exit 0
 fi
 

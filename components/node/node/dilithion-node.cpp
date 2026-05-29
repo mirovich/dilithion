@@ -61,6 +61,8 @@
 #include <net/connman.h>  // Phase 5: Event-driven connection manager
 #include <net/upnp.h>     // UPnP automatic port mapping
 #include <api/http_server.h>
+#include <wallet/wallet_html.h>
+#include <miner/miner_html.h>
 #include <api/cached_stats.h>
 #include <api/metrics.h>
 #include <miner/controller.h>
@@ -3729,6 +3731,8 @@ load_genesis_block:  // Bug #29: Label for automatic retry after blockchain wipe
         int api_port = config.testnet ? 18334 : 8334;
         // CVE-2026-RPC-CORS: gate all-interfaces bind on --public-api
         CHttpServer http_server(api_port, config.public_api);
+        http_server.SetWalletHandler(GetWalletHTML);
+        http_server.SetMinerHandler(GetMinerHTML);
         g_node_state.http_server = &http_server;
 
         // STRESS TEST FIX: Create cached stats for lock-free API responses

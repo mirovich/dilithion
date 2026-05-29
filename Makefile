@@ -32,7 +32,9 @@ INCLUDES := -I components/node \
             -I depends/dilithium/ref \
             -I depends/chiavdf/src \
             -I depends/chiavdf/src/c_bindings \
-            -I depends/libzmq/include
+            -I depends/libzmq/include \
+            -I depends/leveldb/include \
+            -I depends/openssl/include
 
 # Library paths and libraries (base)
 LDFLAGS ?=
@@ -322,32 +324,32 @@ all: dilithion-node dilv-node genesis_gen check-wallet-balance
 	@echo "$(COLOR_GREEN)✓ Build complete!$(COLOR_RESET)"
 
 dilithion-node: $(CORE_OBJECTS) $(OBJ_DIR)/node/dilithion-node.o $(DILITHIUM_OBJECTS) $(CHIAVDF_OBJECTS) | libzmq
-	@echo "$(COLOR_BLUE)[LINK]$(COLOR_RESET) $@"
-	@$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
+    @echo "$(COLOR_BLUE)[LINK]$(COLOR_RESET) $@"
+    @$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
 
 dilv-node: $(CORE_OBJECTS) $(OBJ_DIR)/node/dilv-node.o $(DILITHIUM_OBJECTS) $(CHIAVDF_OBJECTS) | libzmq
-	@echo "$(COLOR_BLUE)[LINK]$(COLOR_RESET) $@"
-	@$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
+    @echo "$(COLOR_BLUE)[LINK]$(COLOR_RESET) $@"
+    @$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
 
 genesis_gen: $(CORE_OBJECTS) $(OBJ_DIR)/test/genesis_test.o $(DILITHIUM_OBJECTS) $(CHIAVDF_OBJECTS)
-	@echo "$(COLOR_BLUE)[LINK]$(COLOR_RESET) $@"
-	@$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
+    @echo "$(COLOR_BLUE)[LINK]$(COLOR_RESET) $@"
+    @$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
 
 inspect_db: $(CORE_OBJECTS) $(OBJ_DIR)/tools/inspect_db.o $(DILITHIUM_OBJECTS) $(CHIAVDF_OBJECTS)
-	@echo "$(COLOR_BLUE)[LINK]$(COLOR_RESET) $@"
-	@$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
+    @echo "$(COLOR_BLUE)[LINK]$(COLOR_RESET) $@"
+    @$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
 
 leveldb_state_hash: $(CORE_OBJECTS) $(OBJ_DIR)/tools/leveldb_state_hash.o $(DILITHIUM_OBJECTS) $(CHIAVDF_OBJECTS)
-	@echo "$(COLOR_BLUE)[LINK]$(COLOR_RESET) $@"
-	@$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
+    @echo "$(COLOR_BLUE)[LINK]$(COLOR_RESET) $@"
+    @$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
 
 check-wallet-balance: $(CORE_OBJECTS) $(OBJ_DIR)/wallet/check-wallet-balance.o $(DILITHIUM_OBJECTS) $(CHIAVDF_OBJECTS)
-	@echo "$(COLOR_BLUE)[LINK]$(COLOR_RESET) $@"
-	@$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
+    @echo "$(COLOR_BLUE)[LINK]$(COLOR_RESET) $@"
+    @$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
 
 dilv-genesis-vdf: $(CORE_OBJECTS) $(OBJ_DIR)/tools/dilv_genesis_vdf.o $(DILITHIUM_OBJECTS) $(CHIAVDF_OBJECTS)
-	@echo "$(COLOR_BLUE)[LINK]$(COLOR_RESET) $@"
-	@$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
+    @echo "$(COLOR_BLUE)[LINK]$(COLOR_RESET) $@"
+    @$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
 
 # Compilation rules
 OBJ_DIR_TARGETS := $(OBJ_DIR)/attestation \
@@ -378,48 +380,48 @@ OBJ_DIR_TARGETS := $(OBJ_DIR)/attestation \
     $(OBJ_DIR)/test
 
 $(OBJ_DIR_TARGETS):
-	@mkdir -p $@
+    @mkdir -p $@
 
 $(OBJ_DIR)/%.o: components/node/%.cpp | $(OBJ_DIR_TARGETS)
-	@echo "$(COLOR_BLUE)[CXX]$(COLOR_RESET)  $<"
-	@$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+    @echo "$(COLOR_BLUE)[CXX]$(COLOR_RESET)  $<"
+    @$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
 $(OBJ_DIR)/%.o: components/wallet/%.cpp | $(OBJ_DIR_TARGETS)
-	@echo "$(COLOR_BLUE)[CXX]$(COLOR_RESET)  $<"
-	@$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+    @echo "$(COLOR_BLUE)[CXX]$(COLOR_RESET)  $<"
+    @$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
 $(OBJ_DIR)/%.o: components/miner/%.cpp | $(OBJ_DIR_TARGETS)
-	@echo "$(COLOR_BLUE)[CXX]$(COLOR_RESET)  $<"
-	@$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+    @echo "$(COLOR_BLUE)[CXX]$(COLOR_RESET)  $<"
+    @$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
 $(OBJ_DIR)/%.o: components/common/%.cpp | $(OBJ_DIR_TARGETS)
-	@echo "$(COLOR_BLUE)[CXX]$(COLOR_RESET)  $<"
-	@$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+    @echo "$(COLOR_BLUE)[CXX]$(COLOR_RESET)  $<"
+    @$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
 $(OBJ_DIR)/%.o: components/tests/%.cpp | $(OBJ_DIR_TARGETS)
-	@echo "$(COLOR_BLUE)[CXX]$(COLOR_RESET)  $<"
-	@$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+    @echo "$(COLOR_BLUE)[CXX]$(COLOR_RESET)  $<"
+    @$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
 $(OBJ_DIR)/chiavdf/c_wrapper.o: depends/chiavdf/src/c_bindings/c_wrapper.cpp
-	@mkdir -p $(OBJ_DIR)/chiavdf
-	@$(CXX) -std=c++17 -O2 -pipe -w $(CPPFLAGS) -I depends/chiavdf/src -I depends/chiavdf/src/c_bindings -c $< -o $@
+    @mkdir -p $(OBJ_DIR)/chiavdf
+    @$(CXX) -std=c++17 -O2 -pipe -w $(CPPFLAGS) -I depends/chiavdf/src -I depends/chiavdf/src/c_bindings -c $< -o $@
 
 $(OBJ_DIR)/chiavdf/lzcnt.o: depends/chiavdf/src/refcode/lzcnt.c
-	@mkdir -p $(OBJ_DIR)/chiavdf
-	@gcc $(CFLAGS) -w -c $< -o $@
+    @mkdir -p $(OBJ_DIR)/chiavdf
+    @gcc $(CFLAGS) -w -c $< -o $@
 
 $(DILITHIUM_DIR)/%.o: $(DILITHIUM_DIR)/%.c
-	@gcc $(CFLAGS) -DDILITHIUM_MODE=3 -I $(DILITHIUM_DIR) -c $< -o $@
+    @gcc $(CFLAGS) -DDILITHIUM_MODE=3 -I $(DILITHIUM_DIR) -c $< -o $@
 
 libzmq:
-	@if [ ! -f $(LIBZMQ_BUILD_DIR)/libzmq.a ]; then \
-		cd depends/libzmq && mkdir -p build && cd build && \
-		cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED=OFF -DBUILD_STATIC=ON -DBUILD_TESTS=OFF -DENABLE_CPACK=OFF -DENABLE_DRAFTS=OFF -DWITH_DOC=OFF -DWITH_DOCS=OFF -DWITH_LIBSODIUM=OFF -DZMQ_BUILD_TESTS=OFF .. && \
-		$(MAKE) -j4; \
-	fi
+    @if [ ! -f $(LIBZMQ_BUILD_DIR)/libzmq.a ]; then \
+        cd depends/libzmq && mkdir -p build && cd build && \
+        cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED=OFF -DBUILD_STATIC=ON -DBUILD_TESTS=OFF -DENABLE_CPACK=OFF -DENABLE_DRAFTS=OFF -DWITH_DOC=OFF -DWITH_DOCS=OFF -DWITH_LIBSODIUM=OFF -DZMQ_BUILD_TESTS=OFF .. && \
+        $(MAKE) -j4; \
+    fi
 
 clean:
-	@rm -rf $(BUILD_DIR)
-	@rm -f dilithion-node dilv-node genesis_gen check-wallet-balance
+    @rm -rf $(BUILD_DIR)
+    @rm -f dilithion-node dilv-node genesis_gen check-wallet-balance
 
 .PHONY: all clean libzmq

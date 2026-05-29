@@ -12,8 +12,6 @@
 #include <rpc/logger.h>  // Phase 1: Request logging
 #include <rpc/ssl_wrapper.h>  // Phase 3: SSL/TLS support
 #include <rpc/websocket.h>  // Phase 4: WebSocket support
-#include <api/wallet_html.h>  // Web wallet UI
-#include <api/miner_html.h>  // Web miner dashboard
 #include <wallet/wallet.h>  // BUG #104 FIX: For CSentTx
 #include <crypto/sha3.h>  // For hashing params
 #include <wallet/passphrase_validator.h>
@@ -1050,38 +1048,6 @@ void CRPCServer::HandleClient(int clientSocket) {
     // Null-terminate and convert to string
     buffer.push_back('\0');
     std::string request(buffer.data());
-
-    // Serve miner dashboard at GET /miner
-    if (request.find("GET /miner") == 0) {
-        const std::string& miner_html = GetMinerHTML();
-        std::ostringstream response;
-        response << "HTTP/1.1 200 OK\r\n"
-                 << "Content-Type: text/html; charset=utf-8\r\n"
-                 << "Content-Length: " << miner_html.length() << "\r\n"
-                 << "Connection: close\r\n"
-                 << "Cache-Control: no-cache\r\n"
-                 << "\r\n"
-                 << miner_html;
-        std::string resp_str = response.str();
-        send_response_and_cleanup(resp_str);
-        return;
-    }
-
-    // Serve web wallet at GET /wallet or GET /wallet.html
-    if (request.find("GET /wallet") == 0 || request.find("GET / HTTP") == 0) {
-        const std::string& wallet_html = GetWalletHTML();
-        std::ostringstream response;
-        response << "HTTP/1.1 200 OK\r\n"
-                 << "Content-Type: text/html; charset=utf-8\r\n"
-                 << "Content-Length: " << wallet_html.length() << "\r\n"
-                 << "Connection: close\r\n"
-                 << "Cache-Control: no-cache\r\n"
-                 << "\r\n"
-                 << wallet_html;
-        std::string resp_str = response.str();
-        send_response_and_cleanup(resp_str);
-        return;
-    }
 
     // CVE-2026-RPC-CORS: No CORS. All OPTIONS preflights rejected.
     // Same-origin requests (bundled web wallet at /wallet) don't preflight.
